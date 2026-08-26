@@ -8,6 +8,9 @@
 | `POST`   | `/api/led`           | yes  | `{"on": true}`                    |
 | `GET`    | `/api/clients`       | yes  | list paired client ids            |
 | `DELETE` | `/api/clients/<id>`  | yes  | revoke a client                   |
+| `GET`    | `/api/apps`          | yes  | list registered apps, plus which is active |
+| `GET`    | `/api/app`           | yes  | currently active app              |
+| `POST`   | `/api/app`           | yes  | `{"index": 0}`, switch the active app |
 | `GET`    | `/api/metrics`       | yes  | CPU and RAM instrumentation       |
 
 See [Security model](security.md) for how `yes`/`window`-gated requests are

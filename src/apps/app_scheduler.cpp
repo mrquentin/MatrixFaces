@@ -26,6 +26,10 @@ const char *AppScheduler::activeName() const {
   return count_ > 0 ? apps_[activeIndex_]->name() : "none";
 }
 
+const char *AppScheduler::name(uint8_t index) const {
+  return index < count_ ? apps_[index]->name() : "";
+}
+
 void AppScheduler::update(uint32_t nowMs) {
   if (count_ == 0) return;
   apps_[activeIndex_]->update(matrix_, nowMs);

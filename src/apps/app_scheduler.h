@@ -31,6 +31,9 @@ class AppScheduler {
   uint8_t count() const { return count_; }
   const char *activeName() const;
 
+  // Name of the app at `index`, or "" if out of range.
+  const char *name(uint8_t index) const;
+
   // Call every loop() iteration.
   void update(uint32_t nowMs);
 

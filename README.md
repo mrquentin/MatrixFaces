@@ -33,7 +33,7 @@ The signed API above is the control plane; the display side is next.
 - [x] Clock app
 - [ ] Weather app
 - [ ] F1 race-flag app
-- [ ] `/api/app` endpoint to switch/configure the active app remotely
+- [x] `/api/apps` and `/api/app` endpoints to list, query, and switch the active app
 
 ## Documentation
 

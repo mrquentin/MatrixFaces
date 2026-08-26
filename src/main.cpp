@@ -4,6 +4,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "api/authenticator.h"
@@ -198,6 +199,31 @@ bool extractJsonBool(const char *json, const char *key, bool &out) {
   return false;
 }
 
+// Minimal extraction of an unsigned integer member; the payloads here are a
+// single key, and rejects anything with a stray decimal point or sign so a
+// float or negative number doesn't silently truncate into a valid index.
+bool extractJsonUInt(const char *json, const char *key, uint32_t &out) {
+  char pattern[24];
+  snprintf(pattern, sizeof(pattern), R"("%s")", key);
+
+  const char *found = strstr(json, pattern);
+  if (found == nullptr) return false;
+
+  const char *p = found + strlen(pattern);
+  while (*p == ' ' || *p == '\t') ++p;
+  if (*p != ':') return false;
+  ++p;
+  while (*p == ' ' || *p == '\t') ++p;
+  if (*p < '0' || *p > '9') return false;
+
+  char *end = nullptr;
+  const unsigned long value = strtoul(p, &end, 10);
+  if (end == p || *end == '.') return false;
+
+  out = static_cast<uint32_t>(value);
+  return true;
+}
+
 void handleSetLed(WiFiClient &client, const HttpRequest &request) {
   bool on = false;
   if (!extractJsonBool(request.body, "on", on)) {
@@ -246,6 +272,45 @@ void handleListClients(WiFiClient &client) {
 
   appendJson(json, sizeof(json), offset, "]}");
   sendJsonResponse(client, 200, "OK", json);
+}
+
+void handleGetActiveApp(WiFiClient &client) {
+  char json[80];
+  snprintf(json, sizeof(json), R"({"index":%u,"name":"%s"})",
+           static_cast<unsigned>(appScheduler.activeIndex()), appScheduler.activeName());
+  sendJsonResponse(client, 200, "OK", json);
+}
+
+void handleListApps(WiFiClient &client) {
+  char json[256];
+  size_t offset = 0;
+  appendJson(json, sizeof(json), offset, R"({"apps":[)");
+
+  for (uint8_t i = 0; i < appScheduler.count(); ++i) {
+    appendJson(json, sizeof(json), offset, R"(%s{"index":%u,"name":"%s"})", i == 0 ? "" : ",",
+               static_cast<unsigned>(i), appScheduler.name(i));
+  }
+
+  appendJson(json, sizeof(json), offset, R"(],"active_index":%u,"active_name":"%s"})",
+             static_cast<unsigned>(appScheduler.activeIndex()), appScheduler.activeName());
+  sendJsonResponse(client, 200, "OK", json);
+}
+
+void handleSetActiveApp(WiFiClient &client, const HttpRequest &request) {
+  uint32_t index = 0;
+  if (!extractJsonUInt(request.body, "index", index)) {
+    sendErrorResponse(client, 400, "Bad Request", "expected_index_integer");
+    return;
+  }
+  if (index >= appScheduler.count()) {
+    sendErrorResponse(client, 400, "Bad Request", "unknown_app_index");
+    return;
+  }
+
+  appScheduler.switchTo(static_cast<uint8_t>(index));
+  Serial.print(F("[apps] switched to "));
+  Serial.println(appScheduler.activeName());
+  handleGetActiveApp(client);
 }
 
 #if METRICS_ENABLED
@@ -312,6 +377,19 @@ void routeAuthenticated(WiFiClient &client, const HttpRequest &request) {
   }
   if (methodIs(request, "GET") && strcmp(request.path, "/api/clients") == 0) {
     handleListClients(client);
+    return;
+  }
+
+  if (methodIs(request, "GET") && strcmp(request.path, "/api/apps") == 0) {
+    handleListApps(client);
+    return;
+  }
+  if (methodIs(request, "GET") && strcmp(request.path, "/api/app") == 0) {
+    handleGetActiveApp(client);
+    return;
+  }
+  if (methodIs(request, "POST") && strcmp(request.path, "/api/app") == 0) {
+    handleSetActiveApp(client, request);
     return;
   }
 
