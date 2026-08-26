@@ -1,3 +1,4 @@
+#include <Adafruit_Protomatter.h>
 #include <SPI.h>
 #include <WiFiNINA.h>
 
@@ -5,8 +6,11 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app.h"
+#include "app_scheduler.h"
 #include "authenticator.h"
 #include "button.h"
+#include "clock_app.h"
 #include "credential_store.h"
 #include "hex.h"
 #include "http_request.h"
@@ -37,6 +41,22 @@ PairingWindow pairing;
 Button buttonUp;
 Button buttonDown;
 
+// RGB matrix wiring for a 128x64 panel; see
+// https://learn.adafruit.com/adafruit-matrixportal-m4/protomatter-arduino-library
+uint8_t matrixRgbPins[] = {7, 8, 9, 10, 11, 12};
+uint8_t matrixAddrPins[] = {17, 18, 19, 20, 21};
+constexpr uint8_t kMatrixClockPin = 14;
+constexpr uint8_t kMatrixLatchPin = 15;
+constexpr uint8_t kMatrixOePin = 16;
+
+// Bit depth 4, single chain, single-buffered: nothing drawn yet animates fast
+// enough to need tear-free double buffering. Height is inferred from the
+// address-pin count (5 pins -> 2*2^5 = 64px), not passed explicitly.
+Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
+                            kMatrixLatchPin, kMatrixOePin, false);
+AppScheduler appScheduler(matrix);
+ClockApp clockApp(clockSource);
+
 bool desiredLedState = false;
 
 void printWiFiStatus() {
@@ -60,6 +80,15 @@ void connectWiFi() {
 
   Serial.println(F("Connected!"));
   printWiFiStatus();
+}
+
+// Blinks the LED forever after printing a fatal boot error; never returns.
+[[noreturn]] void haltBlinking(const __FlashStringHelper *message) {
+  Serial.println(message);
+  while (true) {
+    digitalWrite(LED_BUILTIN, digitalRead(LED_BUILTIN) == LOW ? HIGH : LOW);
+    delay(100);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -437,15 +466,21 @@ void setup() {
   buttonUp.begin(kButtonUpPin);
   buttonDown.begin(kButtonDownPin);
 
+  // Bring up the RGB matrix before anything WiFi-related blocks, so the
+  // clock app can render while the board is still negotiating a connection.
+  appScheduler.add(clockApp);
+  const ProtomatterStatus matrixStatus = appScheduler.begin();
+  if (matrixStatus != PROTOMATTER_OK) {
+    Serial.print(F("Protomatter begin() failed, status="));
+    Serial.println(static_cast<int>(matrixStatus));
+    haltBlinking(F("Halting: matrix init failed"));
+  }
+
   // The Matrix Portal M4's ESP32 co-processor is on non-default pins
   WiFi.setPins(SPIWIFI_SS, SPIWIFI_ACK, ESP32_RESETN, ESP32_GPIO0, &SPIWIFI);
 
   if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println(F("Communication with WiFi module failed!"));
-    while (true) {
-      digitalWrite(LED_BUILTIN, digitalRead(LED_BUILTIN) == LOW ? HIGH : LOW);
-      delay(100);
-    }
+    haltBlinking(F("Communication with WiFi module failed!"));
   }
 
   Serial.print(F("MatrixFaces firmware: "));
@@ -492,6 +527,7 @@ void loop() {
   }
 
   clockSource.maintain();
+  appScheduler.update(millis());
   updateLed();
   metrics::tick();
   reportMetrics();
