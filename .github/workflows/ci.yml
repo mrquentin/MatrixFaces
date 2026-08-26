@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      # Host-run unit tests: SHA-256/HMAC known-answer vectors and header
+      # parsing, from lib/apiauth. No board involved.
+      - name: Run native tests
+        run: pio test -e native
+
+      # Board firmware never runs here (no hardware over serial), but a
+      # compile catches build breaks before they reach the device.
+      - name: Build board firmware
+        run: pio run -e adafruit_matrix_portal_m4
+
+      - name: Build release firmware
+        run: pio run -e release
