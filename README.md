@@ -1,7 +1,14 @@
-# Matrix Portal M4 signed web API
+# MatrixFaces
 
-An HTTP API on the Adafruit Matrix Portal M4, with button-gated pairing and
-HMAC-SHA256 request signing. Paired clients survive a reboot.
+A modular Adafruit Matrix Portal M4 display: swap between "apps" on one RGB
+LED matrix — weather, an F1 race-flag indicator, a clock, and whatever comes
+next.
+
+This repo currently ships the foundation everything else will build on: a
+signed HTTP API on the Matrix Portal M4, with button-gated pairing and
+HMAC-SHA256 request signing. Paired clients survive a reboot. The app
+framework itself (swappable renderers, a scheduler, the actual weather/F1/clock
+apps) is not built yet — see [Roadmap](#roadmap) below.
 
 ## Why not HTTPS
 
@@ -118,6 +125,16 @@ CPU is measured two ways, since with no RTOS there is no idle task to compare
 against. `busy_permille` is the share of wall time inside request handling, and
 `loop_hz` is the polling rate, which falls under load. Signature verification is
 timed with the Cortex-M4 DWT cycle counter.
+
+## Roadmap
+
+The signed API above is the control plane; the display side is next.
+
+- [ ] Matrix rendering framework — swappable "apps" driving the RGB panel
+- [ ] Weather app
+- [ ] F1 race-flag app
+- [ ] Clock app
+- [ ] `/api/app` endpoint to switch/configure the active app remotely
 
 ## Build and test
 

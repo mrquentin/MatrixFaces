@@ -67,7 +67,7 @@ void connectWiFi() {
 void handleRoot(WiFiClient &client) {
   char json[192];
   snprintf(json, sizeof(json),
-           R"({"device":"matrix-portal-m4","paired_clients":%u,"pairing_open":%s,)"
+           R"({"device":"matrixfaces","paired_clients":%u,"pairing_open":%s,)"
            R"("pairing_expires_in":%lu,"clock_synced":%s})",
            static_cast<unsigned>(credentials.count()), pairing.isOpen() ? "true" : "false",
            static_cast<unsigned long>(pairing.remainingSeconds()),
