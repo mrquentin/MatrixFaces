@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so git describe resolves the tag
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      # secrets.h is gitignored (real WiFi creds); the placeholder is enough
+      # to compile — this never connects to WiFi.
+      - name: Stub secrets.h
+        run: cp include/secrets.h.example include/secrets.h
+
+      - name: Build board firmware
+        run: pio run -e adafruit_matrix_portal_m4
+
+      - name: Build release firmware
+        run: pio run -e release
+
+      - name: Stage firmware artifacts
+        run: |
+          mkdir -p dist
+          cp .pio/build/adafruit_matrix_portal_m4/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}.bin"
+          cp .pio/build/release/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-release.bin"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.bin
+          generate_release_notes: true

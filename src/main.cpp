@@ -16,6 +16,10 @@
 #include "secure_random.h"
 #include "time_source.h"
 
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "dev"
+#endif
+
 namespace {
 
 // The Matrix Portal M4's UP/DOWN buttons; see the variant's pin table.
@@ -65,11 +69,12 @@ void connectWiFi() {
 // Unauthenticated discovery endpoint. Exposes only what a client needs to know
 // before it has credentials.
 void handleRoot(WiFiClient &client) {
-  char json[192];
+  char json[224];
   snprintf(json, sizeof(json),
-           R"({"device":"matrixfaces","paired_clients":%u,"pairing_open":%s,)"
-           R"("pairing_expires_in":%lu,"clock_synced":%s})",
-           static_cast<unsigned>(credentials.count()), pairing.isOpen() ? "true" : "false",
+           R"({"device":"matrixfaces","firmware_version":"%s","paired_clients":%u,)"
+           R"("pairing_open":%s,"pairing_expires_in":%lu,"clock_synced":%s})",
+           FIRMWARE_VERSION, static_cast<unsigned>(credentials.count()),
+           pairing.isOpen() ? "true" : "false",
            static_cast<unsigned long>(pairing.remainingSeconds()),
            clockSource.isValid() ? "true" : "false");
   sendJsonResponse(client, 200, "OK", json);
@@ -443,7 +448,9 @@ void setup() {
     }
   }
 
-  Serial.print(F("Firmware version: "));
+  Serial.print(F("MatrixFaces firmware: "));
+  Serial.println(FIRMWARE_VERSION);
+  Serial.print(F("WiFi module firmware: "));
   Serial.println(WiFiClass::firmwareVersion());
 
   connectWiFi();

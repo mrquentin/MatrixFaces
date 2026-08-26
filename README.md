@@ -152,3 +152,11 @@ RFC 4231 vectors, plus signature and header-parsing behaviour. Everything under
 
 Copy `include/secrets.h.example` to `include/secrets.h` and fill in
 `SECRET_SSID`/`SECRET_PASS`; the real file is gitignored.
+
+## Versioning
+
+Each build bakes `git describe --tags --always --dirty` into `FIRMWARE_VERSION`,
+reported by `GET /` and printed on boot — so a flashed board can be checked
+against what's in git. Tags follow `vMAJOR.MINOR.PATCH`; pushing a `v*` tag
+triggers a GitHub Release with the board and release firmware `.bin` files
+attached.
