@@ -1,6 +1,7 @@
 # MatrixFaces
 
 [![CI](https://github.com/mrquentin/MatrixFaces/actions/workflows/ci.yml/badge.svg)](https://github.com/mrquentin/MatrixFaces/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/mrquentin/MatrixFaces)](https://github.com/mrquentin/MatrixFaces/releases/latest)
 
 A modular Adafruit Matrix Portal M4 display: swap between "apps" on one RGB
 LED matrix — weather, an F1 race-flag indicator, a clock, and whatever comes
