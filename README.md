@@ -150,5 +150,5 @@ The tests in `test/test_apiauth/` cover SHA-256 and HMAC against FIPS 180-4 and
 RFC 4231 vectors, plus signature and header-parsing behaviour. Everything under
 `lib/apiauth/` is free of Arduino headers so it builds on the host too.
 
-Put your WiFi credentials in `include/secrets.h` as `SECRET_SSID` and
-`SECRET_PASS`; it is gitignored.
+Copy `include/secrets.h.example` to `include/secrets.h` and fill in
+`SECRET_SSID`/`SECRET_PASS`; the real file is gitignored.

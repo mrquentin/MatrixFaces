@@ -29,6 +29,11 @@ jobs:
       - name: Run native tests
         run: pio test -e native
 
+      # secrets.h is gitignored (real WiFi creds); use the placeholder so the
+      # board envs compile. Nothing here ever connects to WiFi.
+      - name: Stub secrets.h
+        run: cp include/secrets.h.example include/secrets.h
+
       # Board firmware never runs here (no hardware over serial), but a
       # compile catches build breaks before they reach the device.
       - name: Build board firmware
