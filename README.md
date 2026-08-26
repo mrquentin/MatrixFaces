@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/mrquentin/MatrixFaces/actions/workflows/ci.yml/badge.svg)](https://github.com/mrquentin/MatrixFaces/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/mrquentin/MatrixFaces)](https://github.com/mrquentin/MatrixFaces/releases/latest)
+[![License](https://img.shields.io/github/license/mrquentin/MatrixFaces)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/mrquentin/MatrixFaces)](https://github.com/mrquentin/MatrixFaces/commits/master)
+[![PlatformIO](https://img.shields.io/badge/platformio-orange?logo=platformio&logoColor=white)](https://platformio.org)
 
 A modular Adafruit Matrix Portal M4 display: swap between "apps" on one RGB
 LED matrix — weather, an F1 race-flag indicator, a clock, and whatever comes
