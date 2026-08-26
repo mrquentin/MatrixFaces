@@ -6,19 +6,19 @@
 #include <cstdio>
 #include <cstring>
 
-#include "app.h"
-#include "app_scheduler.h"
-#include "authenticator.h"
-#include "button.h"
-#include "clock_app.h"
-#include "credential_store.h"
+#include "api/authenticator.h"
+#include "api/credential_store.h"
+#include "api/http_request.h"
+#include "api/pairing_window.h"
+#include "apps/app.h"
+#include "apps/app_scheduler.h"
+#include "apps/clock_app.h"
+#include "board/button.h"
+#include "board/metrics.h"
+#include "board/secure_random.h"
+#include "board/time_source.h"
 #include "hex.h"
-#include "http_request.h"
-#include "metrics.h"
-#include "pairing_window.h"
 #include "secrets.h"
-#include "secure_random.h"
-#include "time_source.h"
 
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "dev"

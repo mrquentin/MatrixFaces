@@ -1,7 +1,7 @@
 # Where Credentials Live
 
-`src/flash_block.cpp` owns the last 8 KB erase block of the SAMD51's 512 KB
-flash, at a hardcoded `0x7E000`.
+`src/board/flash_block.cpp` owns the last 8 KB erase block of the SAMD51's
+512 KB flash, at a hardcoded `0x7E000`.
 
 The address is pinned rather than left to the linker for a specific reason.
 `FlashStorage_SAMD`'s macros place their storage inside `.text`, which puts it

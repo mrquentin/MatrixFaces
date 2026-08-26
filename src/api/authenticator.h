@@ -5,7 +5,7 @@
 
 #include "auth_header.h"
 #include "credential_store.h"
-#include "time_source.h"
+#include "board/time_source.h"
 
 enum AuthResult {
   kAuthOk,

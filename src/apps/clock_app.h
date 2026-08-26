@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "app.h"
-#include "time_source.h"
+#include "board/time_source.h"
 
 // Renders HH:MM:SS, centered on the panel. TimeSource only reports UTC (no
 // timezone database on the board), so that's what's shown; redraws happen

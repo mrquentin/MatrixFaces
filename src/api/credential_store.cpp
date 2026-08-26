@@ -4,7 +4,7 @@
 
 #include <cstring>
 
-#include "flash_block.h"
+#include "board/flash_block.h"
 #include "hex.h"
 
 extern "C" {
