@@ -10,11 +10,10 @@ A modular Adafruit Matrix Portal M4 display: swap between "apps" on one RGB
 LED matrix — weather, an F1 race-flag indicator, a clock, and whatever comes
 next.
 
-This repo currently ships the foundation everything else will build on: a
-signed HTTP API on the Matrix Portal M4, with button-gated pairing and
-HMAC-SHA256 request signing. Paired clients survive a reboot. The app
-framework itself (swappable renderers, a scheduler, the actual weather/F1/clock
-apps) is not built yet — see [Roadmap](#roadmap) below.
+This repo ships a signed HTTP API on the Matrix Portal M4, with button-gated
+pairing and HMAC-SHA256 request signing, plus a swappable-app framework
+(`App`/`AppScheduler`) driving the RGB matrix. The clock app is the first
+renderer; weather and F1 are not built yet — see [Roadmap](#roadmap) below.
 
 ## Quick start
 
@@ -30,10 +29,10 @@ pairing window, then pair with `tools/m4client.py` — see [Client](docs/client.
 
 The signed API above is the control plane; the display side is next.
 
-- [ ] Matrix rendering framework — swappable "apps" driving the RGB panel
+- [x] Matrix rendering framework — swappable "apps" driving the RGB panel
+- [x] Clock app
 - [ ] Weather app
 - [ ] F1 race-flag app
-- [ ] Clock app
 - [ ] `/api/app` endpoint to switch/configure the active app remotely
 
 ## Documentation
