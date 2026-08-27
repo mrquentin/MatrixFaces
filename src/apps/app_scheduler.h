@@ -34,6 +34,14 @@ class AppScheduler {
   // Name of the app at `index`, or "" if out of range.
   const char *name(uint8_t index) const;
 
+  // Settings forwarding, bounds-checked against both the app index and (for
+  // settingDescriptor) that app's own settingCount(). These are what let the
+  // API layer discover and drive any app's configuration generically.
+  uint8_t settingCount(uint8_t appIndex) const;
+  const SettingDescriptor &settingDescriptor(uint8_t appIndex, uint8_t settingIndex) const;
+  bool getSetting(uint8_t appIndex, const char *key, SettingValue &out) const;
+  bool setSetting(uint8_t appIndex, const char *key, const SettingValue &value);
+
   // Call every loop() iteration.
   void update(uint32_t nowMs);
 
