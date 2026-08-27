@@ -59,11 +59,13 @@ constexpr uint8_t kMatrixClockPin = 14;
 constexpr uint8_t kMatrixLatchPin = 15;
 constexpr uint8_t kMatrixOePin = 16;
 
-// Bit depth 4, single chain, single-buffered: nothing drawn yet animates fast
-// enough to need tear-free double buffering. Height is inferred from the
-// address-pin count (5 pins -> 2*2^5 = 64px), not passed explicitly.
+// Bit depth 4, single chain, double-buffered: TextApp's scroll animation
+// redraws continuously, and every app already does a full fillScreen() each
+// frame, so there's no stale-buffer content to worry about. Height is
+// inferred from the address-pin count (5 pins -> 2*2^5 = 64px), not passed
+// explicitly.
 Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
-                            kMatrixLatchPin, kMatrixOePin, false);
+                            kMatrixLatchPin, kMatrixOePin, true);
 AppScheduler appScheduler(matrix);
 TimezoneOffset timezoneOffset;
 ClockApp clockApp(clockSource, timezoneOffset);

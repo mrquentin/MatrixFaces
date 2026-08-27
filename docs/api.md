@@ -33,7 +33,8 @@ any app without prior knowledge of it:
       ]},
       {"index":1,"name":"text","settings":[
         {"key":"text","label":"Display text","type":"string","max_len":31},
-        {"key":"size","label":"Text scale (1-2)","type":"int","min":1,"max":2}
+        {"key":"size","label":"Text scale (1-2)","type":"int","min":1,"max":2},
+        {"key":"color","label":"Text color (0xRRGGBB)","type":"color","min":0,"max":16777215}
       ]}
     ],"active_index":0,"active_name":"clock"}
 
