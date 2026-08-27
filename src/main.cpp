@@ -19,6 +19,7 @@
 #include "board/secure_random.h"
 #include "board/time_source.h"
 #include "hex.h"
+#include "net/timezone_offset.h"
 #include "secrets.h"
 
 #ifndef FIRMWARE_VERSION
@@ -56,7 +57,8 @@ constexpr uint8_t kMatrixOePin = 16;
 Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
                             kMatrixLatchPin, kMatrixOePin, false);
 AppScheduler appScheduler(matrix);
-ClockApp clockApp(clockSource);
+TimezoneOffset timezoneOffset;
+ClockApp clockApp(clockSource, timezoneOffset);
 
 bool desiredLedState = false;
 
@@ -605,6 +607,7 @@ void loop() {
   }
 
   clockSource.maintain();
+  timezoneOffset.maintain();
   appScheduler.update(millis());
   updateLed();
   metrics::tick();
