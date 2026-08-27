@@ -3,6 +3,13 @@
 #include <cstdio>
 #include <cstring>
 
+namespace {
+constexpr SettingDescriptor kSettings[] = {
+    {"color", "Text color (0xRRGGBB)", SettingType::kColor, 0, 0xFFFFFF, 0},
+    {"size", "Text scale (1-2)", SettingType::kInt, 1, 2, 0},
+};
+}  // namespace
+
 void ClockApp::begin(Adafruit_Protomatter &matrix) {
   (void)matrix;
   // Forces update() to draw on its very next call rather than waiting for a
@@ -38,8 +45,10 @@ void ClockApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   lastRendered_ = renderKey;
 
   matrix.fillScreen(0);
-  matrix.setTextSize(1);
-  matrix.setTextColor(matrix.color565(0, 180, 255));
+  matrix.setTextSize(static_cast<uint8_t>(textSize_));
+  matrix.setTextColor(matrix.color565(static_cast<uint8_t>((colorRgb_ >> 16) & 0xFF),
+                                       static_cast<uint8_t>((colorRgb_ >> 8) & 0xFF),
+                                       static_cast<uint8_t>(colorRgb_ & 0xFF)));
 
   int16_t boundsX;
   int16_t boundsY;
@@ -50,4 +59,43 @@ void ClockApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
                     (matrix.height() - static_cast<int16_t>(boundsH)) / 2 - boundsY);
   matrix.print(text);
   matrix.show();
+}
+
+const SettingDescriptor &ClockApp::settingDescriptor(uint8_t index) const {
+  static constexpr SettingDescriptor kNone{"", "", SettingType::kBool, 0, 0, 0};
+  return index < settingCount() ? kSettings[index] : kNone;
+}
+
+bool ClockApp::getSetting(const char *key, SettingValue &out) const {
+  if (strcmp(key, "color") == 0) {
+    out.type = SettingType::kColor;
+    out.intValue = colorRgb_;
+    return true;
+  }
+  if (strcmp(key, "size") == 0) {
+    out.type = SettingType::kInt;
+    out.intValue = textSize_;
+    return true;
+  }
+  return false;
+}
+
+bool ClockApp::setSetting(const char *key, const SettingValue &value) {
+  if (strcmp(key, "color") == 0) {
+    if (value.type != SettingType::kColor) return false;
+    if (value.intValue < 0 || value.intValue > 0xFFFFFF) return false;
+
+    colorRgb_ = value.intValue;
+    lastRendered_ = kNeverRendered;  // force a redraw with the new color
+    return true;
+  }
+  if (strcmp(key, "size") == 0) {
+    if (value.type != SettingType::kInt) return false;
+    if (value.intValue < 1 || value.intValue > 2) return false;
+
+    textSize_ = value.intValue;
+    lastRendered_ = kNeverRendered;
+    return true;
+  }
+  return false;
 }

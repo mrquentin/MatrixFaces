@@ -18,6 +18,11 @@ class ClockApp : public App {
   void begin(Adafruit_Protomatter &matrix) override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
 
+  uint8_t settingCount() const override { return 2; }
+  const SettingDescriptor &settingDescriptor(uint8_t index) const override;
+  bool getSetting(const char *key, SettingValue &out) const override;
+  bool setSetting(const char *key, const SettingValue &value) override;
+
  private:
   // Sentinels for lastRendered_, distinct from any real epoch second (those
   // values are ~130,000 years out) or the union of the two.
@@ -27,4 +32,6 @@ class ClockApp : public App {
   const TimeSource &clock_;
   const TimezoneOffset &tz_;
   uint32_t lastRendered_ = kNeverRendered;
+  int32_t colorRgb_ = 0x00b4ff;  // matches the previous hardcoded color565(0, 180, 255)
+  int32_t textSize_ = 1;
 };

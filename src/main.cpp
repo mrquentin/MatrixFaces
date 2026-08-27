@@ -13,6 +13,7 @@
 #include "api/pairing_window.h"
 #include "apps/app.h"
 #include "apps/app_scheduler.h"
+#include "apps/app_settings_store.h"
 #include "apps/clock_app.h"
 #include "apps/text_app.h"
 #include "board/button.h"
@@ -61,6 +62,7 @@ AppScheduler appScheduler(matrix);
 TimezoneOffset timezoneOffset;
 ClockApp clockApp(clockSource, timezoneOffset);
 TextApp textApp;
+AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
 
@@ -353,6 +355,8 @@ const char *settingTypeName(SettingType type) {
       return "int";
     case SettingType::kString:
       return "string";
+    case SettingType::kColor:
+      return "color";
   }
   return "unknown";
 }
@@ -377,6 +381,7 @@ void handleListApps(WiFiClient &client) {
 
       switch (descriptor.type) {
         case SettingType::kInt:
+        case SettingType::kColor:
           appendJson(json, sizeof(json), offset, R"(,"min":%ld,"max":%ld)",
                      static_cast<long>(descriptor.intMin), static_cast<long>(descriptor.intMax));
           break;
@@ -443,6 +448,7 @@ void handleGetAppSettings(WiFiClient &client, uint8_t appIndex) {
         appendJson(json, sizeof(json), offset, "%s", value.boolValue ? "true" : "false");
         break;
       case SettingType::kInt:
+      case SettingType::kColor:
         appendJson(json, sizeof(json), offset, "%ld", static_cast<long>(value.intValue));
         break;
       case SettingType::kString:
@@ -463,6 +469,7 @@ bool parseSettingValue(const HttpRequest &request, const SettingDescriptor &desc
     case SettingType::kBool:
       return extractJsonBool(request.body, descriptor.key, value.boolValue);
     case SettingType::kInt:
+    case SettingType::kColor:
       return extractJsonInt(request.body, descriptor.key, value.intValue);
     case SettingType::kString:
       return extractJsonString(request.body, descriptor.key, value.stringValue,
@@ -479,6 +486,7 @@ bool valueSatisfiesDescriptor(const SettingDescriptor &descriptor, const Setting
     case SettingType::kBool:
       return true;
     case SettingType::kInt:
+    case SettingType::kColor:
       return value.intValue >= descriptor.intMin && value.intValue <= descriptor.intMax;
     case SettingType::kString:
       return strlen(value.stringValue) <= descriptor.maxLen;
@@ -535,6 +543,7 @@ void handleSetAppSettings(WiFiClient &client, const HttpRequest &request, uint8_
     }
   }
 
+  appSettingsStore.saveAll(appScheduler);
   handleGetAppSettings(client, appIndex);
 }
 
@@ -797,6 +806,7 @@ void setup() {
   // clock app can render while the board is still negotiating a connection.
   appScheduler.add(clockApp);
   appScheduler.add(textApp);
+  appSettingsStore.begin(appScheduler);
   const ProtomatterStatus matrixStatus = appScheduler.begin();
   if (matrixStatus != PROTOMATTER_OK) {
     Serial.print(F("Protomatter begin() failed, status="));

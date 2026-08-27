@@ -54,11 +54,11 @@ void CredentialStore::begin() {
   // overwriting credentials again. Cheap to check, and silent corruption is
   // otherwise very hard to attribute.
   const auto imageEnd = reinterpret_cast<uint32_t>(&__etext);
-  if (imageEnd >= flash_block::kAddress) {
+  if (imageEnd >= flash_block::kCredentialsAddress) {
     Serial.print(F("[creds] FATAL: image ends at 0x"));
     Serial.print(imageEnd, HEX);
     Serial.print(F(" which overlaps the storage block at 0x"));
-    Serial.println(flash_block::kAddress, HEX);
+    Serial.println(flash_block::kCredentialsAddress, HEX);
   }
   if (!flash_block::geometryMatches()) {
     Serial.println(F("[creds] FATAL: unexpected flash page geometry"));
@@ -69,7 +69,7 @@ void CredentialStore::begin() {
 
 void CredentialStore::load() {
   StoredBlob blob{};
-  flash_block::read(&blob, sizeof(blob));
+  flash_block::read(flash_block::kCredentialsAddress, &blob, sizeof(blob));
 
   count_ = 0;
   memset(clients_, 0, sizeof(clients_));
@@ -105,7 +105,7 @@ void CredentialStore::save() const {
   memcpy(blob.clients, clients_, sizeof(clients_));
   blob.crc = crc32(&blob, checksummedLength());
 
-  if (!flash_block::erasedWrite(&blob, sizeof(blob))) {
+  if (!flash_block::erasedWrite(flash_block::kCredentialsAddress, &blob, sizeof(blob))) {
     Serial.println(F("[creds] flash write did not verify; credentials may not persist"));
   }
 }

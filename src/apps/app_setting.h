@@ -6,10 +6,17 @@
 // A setting value's kind. Kept to a small closed set so the wire format and
 // every app's storage stay simple; add a case here (and in the API layer)
 // if a new kind is ever needed.
+//
+// kColor is otherwise identical to kInt (a packed 0xRRGGBB value, range
+// 0..0xFFFFFF) -- it exists as a separate tag purely so a generic UI can
+// render a color picker instead of a plain number field, without needing to
+// special-case a setting by its key name (which would defeat the point of
+// discovering settings generically in the first place).
 enum class SettingType : uint8_t {
   kBool,
   kInt,
   kString,
+  kColor,
 };
 
 // Static description of one setting, returned by App::settingDescriptor() so
