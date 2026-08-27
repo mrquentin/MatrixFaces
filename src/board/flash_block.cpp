@@ -32,24 +32,24 @@ void command(uint32_t cmd) {
 
 bool geometryMatches() { return pageSize() * 16U == kBlockSize; }
 
-void read(void *dest, size_t length) {
-  memcpy(dest, reinterpret_cast<const void *>(kAddress), length);
+void read(uint32_t address, void *dest, size_t length) {
+  memcpy(dest, reinterpret_cast<const void *>(address), length);
 }
 
-bool erasedWrite(const void *source, size_t length) {
+bool erasedWrite(uint32_t address, const void *source, size_t length) {
   if (length % 4 != 0 || length > pageSize()) return false;
 
   // Manual write: the page buffer is committed explicitly rather than on the
   // last word, so a short write does not commit early.
   NVMCTRL->CTRLA.bit.WMODE = 0;
 
-  NVMCTRL->ADDR.reg = kAddress;
+  NVMCTRL->ADDR.reg = address;
   command(NVMCTRL_CTRLB_CMD_EB);
 
   command(NVMCTRL_CTRLB_CMD_PBC);
 
   // The page buffer only accepts aligned 32-bit writes.
-  auto *dest = reinterpret_cast<volatile uint32_t *>(kAddress);
+  auto *dest = reinterpret_cast<volatile uint32_t *>(address);
   const auto *bytes = static_cast<const uint8_t *>(source);
   for (size_t offset = 0; offset < length; offset += 4) {
     uint32_t word;
@@ -59,7 +59,7 @@ bool erasedWrite(const void *source, size_t length) {
 
   command(NVMCTRL_CTRLB_CMD_WP);
 
-  return memcmp(reinterpret_cast<const void *>(kAddress), source, length) == 0;
+  return memcmp(reinterpret_cast<const void *>(address), source, length) == 0;
 }
 
 }  // namespace flash_block

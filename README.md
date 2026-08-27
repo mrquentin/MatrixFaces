@@ -41,7 +41,7 @@ The signed API above is the control plane; the display side is next.
   HMAC request signing and replay defense
 - [API reference](docs/api.md) — endpoint table
 - [Client](docs/client.md) — using `tools/m4client.py`
-- [Where credentials live](docs/flash-storage.md) — the flash storage design
-  and why the address is pinned
+- [Where credentials and settings live](docs/flash-storage.md) — the flash
+  storage design and why the addresses are pinned
 - [Metrics](docs/metrics.md) — CPU/RAM instrumentation, `/api/metrics`
 - [Development](docs/development.md) — build, flash, test, versioning, releases

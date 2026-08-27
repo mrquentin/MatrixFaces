@@ -13,7 +13,9 @@
 #include "api/pairing_window.h"
 #include "apps/app.h"
 #include "apps/app_scheduler.h"
+#include "apps/app_settings_store.h"
 #include "apps/clock_app.h"
+#include "apps/text_app.h"
 #include "board/button.h"
 #include "board/metrics.h"
 #include "board/secure_random.h"
@@ -45,20 +47,30 @@ Button buttonDown;
 
 // RGB matrix wiring for a 128x64 panel; see
 // https://learn.adafruit.com/adafruit-matrixportal-m4/protomatter-arduino-library
-uint8_t matrixRgbPins[] = {7, 8, 9, 10, 11, 12};
+//
+// Pin order is R1,G1,B1,R2,G2,B2 by Protomatter convention, but this panel's
+// physical HUB75 wiring cycles one position off that (confirmed by testing
+// pure red/green/blue: software R lit the panel's B sub-pixel, G lit R, B lit
+// G). Rotated left by one position per triplet so software "R" drives the
+// pin actually wired to the panel's R input, etc.
+uint8_t matrixRgbPins[] = {8, 9, 7, 11, 12, 10};
 uint8_t matrixAddrPins[] = {17, 18, 19, 20, 21};
 constexpr uint8_t kMatrixClockPin = 14;
 constexpr uint8_t kMatrixLatchPin = 15;
 constexpr uint8_t kMatrixOePin = 16;
 
-// Bit depth 4, single chain, single-buffered: nothing drawn yet animates fast
-// enough to need tear-free double buffering. Height is inferred from the
-// address-pin count (5 pins -> 2*2^5 = 64px), not passed explicitly.
+// Bit depth 4, single chain, double-buffered: TextApp's scroll animation
+// redraws continuously, and every app already does a full fillScreen() each
+// frame, so there's no stale-buffer content to worry about. Height is
+// inferred from the address-pin count (5 pins -> 2*2^5 = 64px), not passed
+// explicitly.
 Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
-                            kMatrixLatchPin, kMatrixOePin, false);
+                            kMatrixLatchPin, kMatrixOePin, true);
 AppScheduler appScheduler(matrix);
 TimezoneOffset timezoneOffset;
 ClockApp clockApp(clockSource, timezoneOffset);
+TextApp textApp;
+AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
 
@@ -226,6 +238,66 @@ bool extractJsonUInt(const char *json, const char *key, uint32_t &out) {
   return true;
 }
 
+// True if `key` appears in `json` at all, regardless of its value's shape.
+// Used to distinguish "field omitted" (leave the setting alone) from "field
+// present but malformed" (reject the request) in handleSetAppSettings.
+bool jsonHasKey(const char *json, const char *key) {
+  char pattern[24];
+  snprintf(pattern, sizeof(pattern), R"("%s")", key);
+  return strstr(json, pattern) != nullptr;
+}
+
+// Signed counterpart to extractJsonUInt, for settings that can be negative.
+bool extractJsonInt(const char *json, const char *key, int32_t &out) {
+  char pattern[24];
+  snprintf(pattern, sizeof(pattern), R"("%s")", key);
+
+  const char *found = strstr(json, pattern);
+  if (found == nullptr) return false;
+
+  const char *p = found + strlen(pattern);
+  while (*p == ' ' || *p == '\t') ++p;
+  if (*p != ':') return false;
+  ++p;
+  while (*p == ' ' || *p == '\t') ++p;
+
+  char *end = nullptr;
+  const long value = strtol(p, &end, 10);
+  if (end == p || *end == '.') return false;
+
+  out = static_cast<int32_t>(value);
+  return true;
+}
+
+// Copies the quoted string value of `key` into `out` (cap includes the
+// terminator). Does not handle backslash escapes: the values here are plain
+// display strings, not general JSON, matching the rest of this ad hoc parser.
+bool extractJsonString(const char *json, const char *key, char *out, size_t cap) {
+  char pattern[24];
+  snprintf(pattern, sizeof(pattern), R"("%s")", key);
+
+  const char *found = strstr(json, pattern);
+  if (found == nullptr) return false;
+
+  const char *p = found + strlen(pattern);
+  while (*p == ' ' || *p == '\t') ++p;
+  if (*p != ':') return false;
+  ++p;
+  while (*p == ' ' || *p == '\t') ++p;
+  if (*p != '"') return false;
+  ++p;
+
+  const char *close = strchr(p, '"');
+  if (close == nullptr) return false;
+
+  const size_t len = static_cast<size_t>(close - p);
+  if (len >= cap) return false;
+
+  memcpy(out, p, len);
+  out[len] = '\0';
+  return true;
+}
+
 void handleSetLed(WiFiClient &client, const HttpRequest &request) {
   bool on = false;
   if (!extractJsonBool(request.body, "on", on)) {
@@ -283,14 +355,55 @@ void handleGetActiveApp(WiFiClient &client) {
   sendJsonResponse(client, 200, "OK", json);
 }
 
+const char *settingTypeName(SettingType type) {
+  switch (type) {
+    case SettingType::kBool:
+      return "bool";
+    case SettingType::kInt:
+      return "int";
+    case SettingType::kString:
+      return "string";
+    case SettingType::kColor:
+      return "color";
+  }
+  return "unknown";
+}
+
+// Buffer sized for kMaxApps (8) apps with several settings each; the two
+// registered today (clock: 0, text: 2) use well under a quarter of it.
 void handleListApps(WiFiClient &client) {
-  char json[256];
+  char json[1024];
   size_t offset = 0;
   appendJson(json, sizeof(json), offset, R"({"apps":[)");
 
   for (uint8_t i = 0; i < appScheduler.count(); ++i) {
-    appendJson(json, sizeof(json), offset, R"(%s{"index":%u,"name":"%s"})", i == 0 ? "" : ",",
-               static_cast<unsigned>(i), appScheduler.name(i));
+    appendJson(json, sizeof(json), offset, R"(%s{"index":%u,"name":"%s","settings":[)",
+               i == 0 ? "" : ",", static_cast<unsigned>(i), appScheduler.name(i));
+
+    const uint8_t settingCount = appScheduler.settingCount(i);
+    for (uint8_t s = 0; s < settingCount; ++s) {
+      const SettingDescriptor &descriptor = appScheduler.settingDescriptor(i, s);
+      appendJson(json, sizeof(json), offset, R"(%s{"key":"%s","label":"%s","type":"%s")",
+                 s == 0 ? "" : ",", descriptor.key, descriptor.label,
+                 settingTypeName(descriptor.type));
+
+      switch (descriptor.type) {
+        case SettingType::kInt:
+        case SettingType::kColor:
+          appendJson(json, sizeof(json), offset, R"(,"min":%ld,"max":%ld)",
+                     static_cast<long>(descriptor.intMin), static_cast<long>(descriptor.intMax));
+          break;
+        case SettingType::kString:
+          appendJson(json, sizeof(json), offset, R"(,"max_len":%lu)",
+                     static_cast<unsigned long>(descriptor.maxLen));
+          break;
+        case SettingType::kBool:
+          break;
+      }
+      appendJson(json, sizeof(json), offset, "}");
+    }
+
+    appendJson(json, sizeof(json), offset, "]}");
   }
 
   appendJson(json, sizeof(json), offset, R"(],"active_index":%u,"active_name":"%s"})",
@@ -313,6 +426,142 @@ void handleSetActiveApp(WiFiClient &client, const HttpRequest &request) {
   Serial.print(F("[apps] switched to "));
   Serial.println(appScheduler.activeName());
   handleGetActiveApp(client);
+}
+
+// Values only, keyed by descriptor -- the schema itself lives in
+// handleListApps(). `wrote` tracks comma placement independent of
+// getSetting() ever refusing an entry, so a skip never produces bad JSON.
+void handleGetAppSettings(WiFiClient &client, uint8_t appIndex) {
+  if (appIndex >= appScheduler.count()) {
+    sendErrorResponse(client, 404, "Not Found", "unknown_app_index");
+    return;
+  }
+
+  char json[256];
+  size_t offset = 0;
+  appendJson(json, sizeof(json), offset, "{");
+
+  bool wrote = false;
+  const uint8_t settingCount = appScheduler.settingCount(appIndex);
+  for (uint8_t i = 0; i < settingCount; ++i) {
+    const SettingDescriptor &descriptor = appScheduler.settingDescriptor(appIndex, i);
+    SettingValue value{};
+    if (!appScheduler.getSetting(appIndex, descriptor.key, value)) continue;
+
+    appendJson(json, sizeof(json), offset, R"(%s"%s":)", wrote ? "," : "", descriptor.key);
+    wrote = true;
+
+    switch (descriptor.type) {
+      case SettingType::kBool:
+        appendJson(json, sizeof(json), offset, "%s", value.boolValue ? "true" : "false");
+        break;
+      case SettingType::kInt:
+      case SettingType::kColor:
+        appendJson(json, sizeof(json), offset, "%ld", static_cast<long>(value.intValue));
+        break;
+      case SettingType::kString:
+        appendJson(json, sizeof(json), offset, R"("%s")", value.stringValue);
+        break;
+    }
+  }
+
+  appendJson(json, sizeof(json), offset, "}");
+  sendJsonResponse(client, 200, "OK", json);
+}
+
+// Parses the raw JSON value for `descriptor.key` per its declared type.
+bool parseSettingValue(const HttpRequest &request, const SettingDescriptor &descriptor,
+                       SettingValue &value) {
+  value.type = descriptor.type;
+  switch (descriptor.type) {
+    case SettingType::kBool:
+      return extractJsonBool(request.body, descriptor.key, value.boolValue);
+    case SettingType::kInt:
+    case SettingType::kColor:
+      return extractJsonInt(request.body, descriptor.key, value.intValue);
+    case SettingType::kString:
+      return extractJsonString(request.body, descriptor.key, value.stringValue,
+                               sizeof(value.stringValue));
+  }
+  return false;
+}
+
+// Generic range/length check against the descriptor, independent of any
+// app's own setSetting() validation -- this is what lets pass 1 below catch
+// every problem before pass 2 mutates anything.
+bool valueSatisfiesDescriptor(const SettingDescriptor &descriptor, const SettingValue &value) {
+  switch (descriptor.type) {
+    case SettingType::kBool:
+      return true;
+    case SettingType::kInt:
+    case SettingType::kColor:
+      return value.intValue >= descriptor.intMin && value.intValue <= descriptor.intMax;
+    case SettingType::kString:
+      return strlen(value.stringValue) <= descriptor.maxLen;
+  }
+  return false;
+}
+
+// Applies every setting present in the request body against the target
+// app's own descriptors -- no per-app knowledge here, only the generic
+// key/type contract every App implements. A key the body omits is left
+// untouched (partial update); a key present but malformed or out of range
+// rejects the whole request, and rejects it *before* touching any app
+// state, so a later invalid field can't leave an earlier one applied.
+void handleSetAppSettings(WiFiClient &client, const HttpRequest &request, uint8_t appIndex) {
+  if (appIndex >= appScheduler.count()) {
+    sendErrorResponse(client, 404, "Not Found", "unknown_app_index");
+    return;
+  }
+
+  const uint8_t settingCount = appScheduler.settingCount(appIndex);
+
+  bool anyPresent = false;
+  for (uint8_t i = 0; i < settingCount; ++i) {
+    const SettingDescriptor &descriptor = appScheduler.settingDescriptor(appIndex, i);
+    if (!jsonHasKey(request.body, descriptor.key)) continue;
+    anyPresent = true;
+
+    SettingValue value{};
+    if (!parseSettingValue(request, descriptor, value) ||
+        !valueSatisfiesDescriptor(descriptor, value)) {
+      sendErrorResponse(client, 400, "Bad Request", "invalid_setting_value");
+      return;
+    }
+  }
+
+  if (!anyPresent) {
+    sendErrorResponse(client, 400, "Bad Request", "no_recognized_settings");
+    return;
+  }
+
+  // Every present key already parsed and validated above; re-parsing here is
+  // cheap string scanning and avoids a scratch array for values in flight.
+  for (uint8_t i = 0; i < settingCount; ++i) {
+    const SettingDescriptor &descriptor = appScheduler.settingDescriptor(appIndex, i);
+    if (!jsonHasKey(request.body, descriptor.key)) continue;
+
+    SettingValue value{};
+    parseSettingValue(request, descriptor, value);
+    if (!appScheduler.setSetting(appIndex, descriptor.key, value)) {
+      // Only reachable if an app's own setSetting() is stricter than its
+      // descriptor; still fail loudly rather than silently drop the write.
+      sendErrorResponse(client, 500, "Internal Server Error", "setting_rejected_after_validation");
+      return;
+    }
+  }
+
+  appSettingsStore.saveAll(appScheduler);
+  handleGetAppSettings(client, appIndex);
+}
+
+// Parses "<digits>/settings" from `rest`, e.g. "0/settings" -> index 0.
+bool parseAppSettingsPath(const char *rest, uint8_t &index) {
+  char *end = nullptr;
+  const unsigned long value = strtoul(rest, &end, 10);
+  if (end == rest || value > 255 || strcmp(end, "/settings") != 0) return false;
+  index = static_cast<uint8_t>(value);
+  return true;
 }
 
 #if METRICS_ENABLED
@@ -393,6 +642,21 @@ void routeAuthenticated(WiFiClient &client, const HttpRequest &request) {
   if (methodIs(request, "POST") && strcmp(request.path, "/api/app") == 0) {
     handleSetActiveApp(client, request);
     return;
+  }
+
+  constexpr char kAppsPrefix[] = "/api/apps/";
+  if (strncmp(request.path, kAppsPrefix, sizeof(kAppsPrefix) - 1) == 0) {
+    uint8_t appIndex = 0;
+    if (parseAppSettingsPath(request.path + sizeof(kAppsPrefix) - 1, appIndex)) {
+      if (methodIs(request, "GET")) {
+        handleGetAppSettings(client, appIndex);
+        return;
+      }
+      if (methodIs(request, "POST")) {
+        handleSetAppSettings(client, request, appIndex);
+        return;
+      }
+    }
   }
 
 #if METRICS_ENABLED
@@ -549,6 +813,8 @@ void setup() {
   // Bring up the RGB matrix before anything WiFi-related blocks, so the
   // clock app can render while the board is still negotiating a connection.
   appScheduler.add(clockApp);
+  appScheduler.add(textApp);
+  appSettingsStore.begin(appScheduler);
   const ProtomatterStatus matrixStatus = appScheduler.begin();
   if (matrixStatus != PROTOMATTER_OK) {
     Serial.print(F("Protomatter begin() failed, status="));
