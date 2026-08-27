@@ -16,6 +16,19 @@ consumed by the first successful pair. If that residual risk matters, the fix is
 an ECDH handshake at pairing so the secret is never transmitted; put the board
 behind a TLS-terminating reverse proxy if you need real HTTPS for clients.
 
+## Outbound timezone lookup
+
+`ClockApp` shows local time, but the board has no timezone database, so
+`TimezoneOffset` resolves the UTC offset from a plain HTTP GET to
+`ip-api.com`, keyed off the board's public IP as seen by that service (not
+sent explicitly — the service reads it from the connection). This means the
+board's public IP and approximate location are disclosed to a third party,
+roughly every 12 hours, over an unauthenticated plaintext connection. If that
+is unacceptable, the fix is to drop `TimezoneOffset` and let `ClockApp` render
+UTC — it already does exactly that whenever the lookup hasn't resolved yet.
+`TimeSource` itself is never affected: it stays pure UTC, which the signing
+scheme above depends on.
+
 ## Pairing
 
 1. Press **UP** on the board. The onboard LED blinks for 60 seconds.
