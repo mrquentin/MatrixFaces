@@ -26,8 +26,10 @@ bool geometryMatches();
 void read(uint32_t address, void *dest, size_t length);
 
 // Erases the block at `address` and writes `length` bytes at its start.
-// `length` must be a multiple of 4 and no larger than one page. Returns false
-// if the data did not read back identical.
+// `length` must be a multiple of 4 and no larger than one erase block
+// (`kBlockSize`); internally this writes one page (`pageSize()` bytes) at a
+// time, since the NVMCTRL page buffer only ever holds one page's worth of
+// data. Returns false if the data did not read back identical.
 bool erasedWrite(uint32_t address, const void *source, size_t length);
 
 }  // namespace flash_block

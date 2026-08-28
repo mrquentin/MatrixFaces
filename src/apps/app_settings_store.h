@@ -1,6 +1,10 @@
 #pragma once
 
+#include <cstddef>
+
 #include "app_scheduler.h"
+#include "board/flash_block.h"
+#include "board/flash_record_store.h"
 
 // Persists every registered app's settings across a reboot, in a dedicated
 // erase block separate from CredentialStore's.
@@ -22,5 +26,18 @@ class AppSettingsStore {
   void saveAll(const AppScheduler &scheduler);
 
  private:
+  static constexpr uint32_t kMagic = 0x4d344153;  // "M4AS"
+  static constexpr uint16_t kVersion = 1;
+  static constexpr uint8_t kMaxRecords = 32;
+  static constexpr size_t kNameCap = 16;
+
+  struct SettingRecord {
+    char appName[kNameCap];
+    char key[kNameCap];
+    SettingValue value;
+  };
+
   void load(AppScheduler &scheduler);
+
+  FlashRecordStore<SettingRecord, kMaxRecords> store_{flash_block::kAppSettingsAddress, kMagic, kVersion, "settings"};
 };
