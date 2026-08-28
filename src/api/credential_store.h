@@ -4,6 +4,8 @@
 #include <cstdint>
 
 #include "auth_header.h"
+#include "board/flash_block.h"
+#include "board/flash_record_store.h"
 
 // One paired client. The secret is stored in the clear because HMAC needs the
 // original key material to recompute a signature.
@@ -34,10 +36,14 @@ class CredentialStore {
   bool clear();
 
  private:
+  static constexpr uint32_t kMagic = 0x4d345753;  // "M4WS"
+  static constexpr uint16_t kVersion = 1;
+
   void load();
   // Serialises the in-memory clients to flash; the object itself is unchanged.
   void save() const;
 
+  FlashRecordStore<StoredClient, kMaxClients> store_{flash_block::kCredentialsAddress, kMagic, kVersion, "creds"};
   StoredClient clients_[kMaxClients];
-  uint8_t count_;
+  uint8_t count_ = 0;
 };

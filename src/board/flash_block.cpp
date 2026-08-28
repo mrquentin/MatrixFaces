@@ -37,27 +37,39 @@ void read(uint32_t address, void *dest, size_t length) {
 }
 
 bool erasedWrite(uint32_t address, const void *source, size_t length) {
-  if (length % 4 != 0 || length > pageSize()) return false;
+  if (length % 4 != 0 || length > kBlockSize) return false;
 
-  // Manual write: the page buffer is committed explicitly rather than on the
-  // last word, so a short write does not commit early.
+  // Manual write: the page buffer is committed explicitly (via the WP
+  // command below) rather than on the last word, so a short write does not
+  // commit early.
   NVMCTRL->CTRLA.bit.WMODE = 0;
 
+  // One Erase Block covers the whole block regardless of how many of its
+  // pages `length` actually touches.
   NVMCTRL->ADDR.reg = address;
   command(NVMCTRL_CTRLB_CMD_EB);
 
-  command(NVMCTRL_CTRLB_CMD_PBC);
-
-  // The page buffer only accepts aligned 32-bit writes.
-  auto *dest = reinterpret_cast<volatile uint32_t *>(address);
+  // The page buffer only holds one page at a time, so a blob spanning
+  // multiple pages needs its own clear/fill/commit cycle per page.
+  const uint32_t page = pageSize();
   const auto *bytes = static_cast<const uint8_t *>(source);
-  for (size_t offset = 0; offset < length; offset += 4) {
-    uint32_t word;
-    memcpy(&word, bytes + offset, sizeof(word));
-    *dest++ = word;
-  }
+  for (size_t offset = 0; offset < length; offset += page) {
+    const size_t chunk = (length - offset < page) ? (length - offset) : page;
+    const uint32_t pageAddress = address + static_cast<uint32_t>(offset);
 
-  command(NVMCTRL_CTRLB_CMD_WP);
+    command(NVMCTRL_CTRLB_CMD_PBC);
+
+    // The page buffer only accepts aligned 32-bit writes.
+    auto *dest = reinterpret_cast<volatile uint32_t *>(pageAddress);
+    for (size_t i = 0; i < chunk; i += 4) {
+      uint32_t word;
+      memcpy(&word, bytes + offset + i, sizeof(word));
+      *dest++ = word;
+    }
+
+    NVMCTRL->ADDR.reg = pageAddress;
+    command(NVMCTRL_CTRLB_CMD_WP);
+  }
 
   return memcmp(reinterpret_cast<const void *>(address), source, length) == 0;
 }
