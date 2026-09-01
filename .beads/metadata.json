@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "matrix_faces",
+  "project_id": "9920dfbc-af38-4f4a-af4a-6e091e7acf15"
+}
