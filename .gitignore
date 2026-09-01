@@ -3,6 +3,14 @@
 include/secrets.h
 compile_commands.json
 
+# IDE / editor state (machine-local)
+.idea/
+.vscode/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
