@@ -15,6 +15,8 @@
 #include "apps/app_scheduler.h"
 #include "apps/app_settings_store.h"
 #include "apps/clock_app.h"
+#include "apps/f1_flags_app.h"
+#include "apps/flag_test_app.h"
 #include "apps/text_app.h"
 #include "board/button.h"
 #include "board/metrics.h"
@@ -70,6 +72,8 @@ AppScheduler appScheduler(matrix);
 TimezoneOffset timezoneOffset;
 ClockApp clockApp(clockSource, timezoneOffset);
 TextApp textApp;
+F1FlagsApp f1FlagsApp;
+FlagTestApp flagTestApp;
 AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
@@ -814,6 +818,8 @@ void setup() {
   // clock app can render while the board is still negotiating a connection.
   appScheduler.add(clockApp);
   appScheduler.add(textApp);
+  appScheduler.add(f1FlagsApp);
+  appScheduler.add(flagTestApp);
   appSettingsStore.begin(appScheduler);
   const ProtomatterStatus matrixStatus = appScheduler.begin();
   if (matrixStatus != PROTOMATTER_OK) {
