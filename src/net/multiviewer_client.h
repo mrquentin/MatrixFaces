@@ -34,11 +34,13 @@ class MultiViewerClient {
   void setHost(IPAddress host);
   IPAddress host() const { return host_; }
 
-  // Call every loop() iteration. Throttles itself to kPollIntervalMs and is a
-  // no-op when the host is unset. An actual poll blocks for up to a couple of
-  // seconds (WiFiClient connect + read) -- the same tradeoff TimezoneOffset
-  // makes elsewhere in this firmware, acceptable here because it only runs
-  // while the F1 flags app is the active one.
+  // Call every loop() iteration. Throttles retries to kPollIntervalMs once
+  // connected, or kReconnectBackoffMs while not (see the .cpp for why: a
+  // failed WiFiClient::connect() blocks for up to 10s internally, with no
+  // way to shorten that via WiFiNINA's public API, so retrying on anything
+  // shorter than that would starve loop() -- and everything else that
+  // depends on it, like the HTTP API and button handling -- continuously
+  // while the host is unreachable). A no-op when the host is unset.
   void poll(uint32_t nowMs);
 
   // True once a poll has round-tripped successfully; flips back to false the
@@ -64,6 +66,10 @@ class MultiViewerClient {
  private:
   static constexpr uint16_t kPort = 10101;
   static constexpr uint32_t kPollIntervalMs = 2000;
+  // WiFiClient::connect() blocks up to 10s internally on a failed attempt
+  // (see poll()'s doc comment); this must stay comfortably above that so a
+  // wrong/unreachable host doesn't pin loop() in back-to-back 10s blocks.
+  static constexpr uint32_t kReconnectBackoffMs = 30000;
   static constexpr uint32_t kResponseTimeoutMs = 3000;
   // Sized for TrackStatus/LapCount/DriverList (a few KB combined) plus
   // RaceControlMessages, which grows for the entire

@@ -88,22 +88,9 @@ void F1FlagsApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   everRendered_ = true;
 }
 
-uint8_t F1FlagsApp::fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxSize) {
-  for (uint8_t size = maxSize; size >= 1; size--) {
-    matrix.setTextSize(size);
-    int16_t x;
-    int16_t y;
-    uint16_t w;
-    uint16_t h;
-    matrix.getTextBounds(text, 0, 0, &x, &y, &w, &h);
-    if (static_cast<int16_t>(w) <= matrix.width() - 4) return size;
-  }
-  return 1;
-}
-
 void F1FlagsApp::drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg) {
   matrix.fillScreen(bg);
-  matrix.setTextSize(fitTextSize(matrix, text, kMaxTextSize));
+  matrix.setTextSize(fitTextSize(matrix, text, kMaxTextSize, matrix.width() - 4));
   matrix.setTextColor(fg);
 
   int16_t boundsX;
@@ -117,37 +104,28 @@ void F1FlagsApp::drawSingleLine(Adafruit_Protomatter &matrix, const char *text, 
   matrix.show();
 }
 
-void F1FlagsApp::drawTwoLine(Adafruit_Protomatter &matrix, const char *primary, const char *secondary,
-                              uint16_t bg, uint16_t fg) {
-  matrix.fillScreen(bg);
-  matrix.setTextColor(fg);
+namespace {
 
-  matrix.setTextSize(fitTextSize(matrix, primary, kMaxTextSize));
-  int16_t px;
-  int16_t py;
-  uint16_t pw;
-  uint16_t ph;
-  matrix.getTextBounds(primary, 0, 0, &px, &py, &pw, &ph);
-  matrix.setCursor((matrix.width() - static_cast<int16_t>(pw)) / 2 - px,
-                    matrix.height() / 4 - static_cast<int16_t>(ph) / 2 - py);
-  matrix.print(primary);
-
-  matrix.setTextSize(fitTextSize(matrix, secondary, kMaxTextSize));
-  int16_t sx;
-  int16_t sy;
-  uint16_t sw;
-  uint16_t sh;
-  matrix.getTextBounds(secondary, 0, 0, &sx, &sy, &sw, &sh);
-  matrix.setCursor((matrix.width() - static_cast<int16_t>(sw)) / 2 - sx,
-                    (matrix.height() * 3) / 4 - static_cast<int16_t>(sh) / 2 - sy);
-  matrix.print(secondary);
-
-  matrix.show();
+FlagKind toFlagKind(MultiViewerClient::Flag flag) {
+  switch (flag) {
+    case MultiViewerClient::Flag::kYellow:
+      return FlagKind::kYellow;
+    case MultiViewerClient::Flag::kSafetyCar:
+      return FlagKind::kSafetyCar;
+    case MultiViewerClient::Flag::kVirtualSafetyCar:
+      return FlagKind::kVirtualSafetyCar;
+    case MultiViewerClient::Flag::kRed:
+    case MultiViewerClient::Flag::kAllClear:
+    case MultiViewerClient::Flag::kUnknown:
+      return FlagKind::kRed;  // unreachable for the latter two; see render()
+  }
+  return FlagKind::kRed;
 }
+
+}  // namespace
 
 void F1FlagsApp::render(Adafruit_Protomatter &matrix, const RenderState &state) {
   constexpr uint16_t kBlack = 0;
-  constexpr uint16_t kWhite = 0xFFFF;
   const uint16_t statusColor = matrix.color565(160, 160, 160);
 
   char buf[16];
@@ -161,30 +139,19 @@ void F1FlagsApp::render(Adafruit_Protomatter &matrix, const RenderState &state) 
     case Mode::kNoSession:
       drawSingleLine(matrix, "NO SESSION", kBlack, statusColor);
       break;
-    case Mode::kFlag:
-      switch (static_cast<MultiViewerClient::Flag>(state.a)) {
-        case MultiViewerClient::Flag::kYellow:
-          drawSingleLine(matrix, "YELLOW", matrix.color565(255, 220, 0), kBlack);
-          break;
-        case MultiViewerClient::Flag::kSafetyCar:
-          drawSingleLine(matrix, "SAFETY CAR", matrix.color565(255, 140, 0), kBlack);
-          break;
-        case MultiViewerClient::Flag::kVirtualSafetyCar:
-          drawSingleLine(matrix, "VIRTUAL SC", matrix.color565(255, 90, 0), kBlack);
-          break;
-        case MultiViewerClient::Flag::kRed:
-          drawSingleLine(matrix, "RED FLAG", matrix.color565(220, 0, 0), kWhite);
-          break;
-        case MultiViewerClient::Flag::kAllClear:
-        case MultiViewerClient::Flag::kUnknown:
-          // computeRenderState() never selects kFlag for these; unreachable
-          // in practice, but fail safe rather than draw nothing.
-          drawSingleLine(matrix, "NO SESSION", kBlack, statusColor);
-          break;
+    case Mode::kFlag: {
+      const auto flag = static_cast<MultiViewerClient::Flag>(state.a);
+      if (flag == MultiViewerClient::Flag::kAllClear || flag == MultiViewerClient::Flag::kUnknown) {
+        // computeRenderState() never selects kFlag for these; unreachable
+        // in practice, but fail safe rather than draw something misleading.
+        drawSingleLine(matrix, "NO SESSION", kBlack, statusColor);
+        break;
       }
+      drawFlag(matrix, toFlagKind(flag), nullptr);
       break;
+    }
     case Mode::kBlueFlag:
-      drawTwoLine(matrix, "BLUE FLAG", state.text, matrix.color565(0, 90, 255), kWhite);
+      drawFlag(matrix, FlagKind::kBlue, state.text);
       break;
     case Mode::kLapCount:
       snprintf(buf, sizeof(buf), "%lu/%lu", static_cast<unsigned long>(state.a),

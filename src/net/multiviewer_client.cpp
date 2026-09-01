@@ -183,7 +183,8 @@ bool MultiViewerClient::fetch(char *buf, size_t cap, size_t &outLen) {
 
 void MultiViewerClient::poll(uint32_t nowMs) {
   if (host_ == IPAddress()) return;
-  if (everPolled_ && nowMs - lastPollMs_ < kPollIntervalMs) return;
+  const uint32_t interval = connected_ ? kPollIntervalMs : kReconnectBackoffMs;
+  if (everPolled_ && nowMs - lastPollMs_ < interval) return;
   lastPollMs_ = nowMs;
   everPolled_ = true;
 

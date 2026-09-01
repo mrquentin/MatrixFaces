@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "app.h"
+#include "flag_display.h"
 #include "net/multiviewer_client.h"
 
 // Displays F1 session state polled from a MultiViewer (https://multiviewer.app/)
@@ -52,10 +53,7 @@ class F1FlagsApp : public App {
   RenderState computeRenderState() const;
   static void render(Adafruit_Protomatter &matrix, const RenderState &state);
   static bool renderStateEquals(const RenderState &a, const RenderState &b);
-  static uint8_t fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxSize);
   static void drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg);
-  static void drawTwoLine(Adafruit_Protomatter &matrix, const char *primary, const char *secondary,
-                           uint16_t bg, uint16_t fg);
 
   MultiViewerClient client_;
   char host_[kHostCap] = "";
