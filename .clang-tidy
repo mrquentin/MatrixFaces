@@ -1,0 +1,65 @@
+# Checks are enabled broadly, then narrowed. Every exclusion below is a constraint
+# of this target rather than a matter of taste, and says why.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -llvm-header-guard,
+  -modernize-avoid-c-arrays,
+  -readability-braces-around-statements,
+  -performance-no-int-to-ptr,
+  -bugprone-easily-swappable-parameters,
+  -hicpp-signed-bitwise,
+  -readability-math-missing-parentheses,
+  -cert-err33-c,
+  -cert-dcl50-cpp,
+  -cppcoreguidelines-pro-type-vararg,
+  -misc-include-cleaner
+
+# Why each of the last block is off:
+#
+#   modernize-avoid-c-arrays
+#     Request buffers are fixed-size by design so a hostile client cannot drive
+#     the heap, and StoredClient is serialised to flash byte for byte.
+#
+#   readability-braces-around-statements
+#     Single-line guards (`if (!ok) return;`) are used consistently throughout.
+#
+#   performance-no-int-to-ptr
+#     Unavoidable: every register and flash access goes through a fixed address,
+#     as does CMSIS itself.
+#
+#   hicpp-signed-bitwise
+#     Integer promotion in the SHA-256 round functions trips this on operands
+#     that are already unsigned.
+#
+#   readability-math-missing-parentheses
+#     `block[i * 4 + 1]` reads better than `block[(i * 4) + 1]`.
+#
+#   cert-err33-c / cert-dcl50-cpp / cppcoreguidelines-pro-type-vararg
+#     Responses are printf-formatted into buffers whose size is proven at the
+#     call site; appendJson() checks truncation where it can actually happen.
+#
+# Reserved identifiers are suppressed per-line with NOLINT where the name is the
+# linker's (__etext, __StackTop, __end__) and cannot be chosen freely.
+
+CheckOptions:
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: k
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+
+HeaderFilterRegex: '(src|lib/apiauth)/.*'
+WarningsAsErrors: ''

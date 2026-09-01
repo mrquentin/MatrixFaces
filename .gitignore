@@ -1,3 +1,7 @@
+.pio
+.m4-credentials.json
+include/secrets.h
+compile_commands.json
 
 # Beads / Dolt files (added by bd init)
 .dolt/
