@@ -25,6 +25,11 @@ QueueHandle_t commandQueue() {
   return queue;
 }
 
+QueueHandle_t eventQueue() {
+  static QueueHandle_t queue = xQueueCreate(kEventQueueDepth, sizeof(Event));
+  return queue;
+}
+
 }  // namespace
 
 bool commandPost(const Command &command) {
@@ -35,6 +40,29 @@ bool commandPost(const Command &command) {
 
 bool commandTake(Command &out) {
   QueueHandle_t queue = commandQueue();
+  if (queue == nullptr) return false;
+  return xQueueReceive(queue, &out, 0) == pdTRUE;
+}
+
+// Drop-oldest, unlike the command queue: a listener that has fallen behind
+// wants the current state, not the start of the backlog. FreeRTOS has no
+// overwrite for a multi-element queue, so making room means taking one off the
+// front -- which is safe here because the render task is the only poster and
+// the network task the only consumer.
+bool eventPost(const Event &event) {
+  QueueHandle_t queue = eventQueue();
+  if (queue == nullptr) return false;
+
+  if (xQueueSend(queue, &event, 0) == pdTRUE) return true;
+
+  Event discarded{};
+  xQueueReceive(queue, &discarded, 0);
+  xQueueSend(queue, &event, 0);
+  return false;  // something was dropped; the caller counts it
+}
+
+bool eventTake(Event &out) {
+  QueueHandle_t queue = eventQueue();
   if (queue == nullptr) return false;
   return xQueueReceive(queue, &out, 0) == pdTRUE;
 }

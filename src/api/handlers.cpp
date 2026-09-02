@@ -562,6 +562,16 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
   ram["free_now"] = m.freeNow;
   ram["min_free_ever"] = m.minFreeEver;
 
+  JsonObject storage = doc["storage"].to<JsonObject>();
+  storage["persist_writes"] = m.persistWrites;
+  storage["events_dropped"] = m.eventsDropped;
+
+  if (ctx.wsHub != nullptr) {
+    JsonObject websocket = doc["websocket"].to<JsonObject>();
+    websocket["connections"] = ctx.wsHub->count();
+    websocket["messages"] = ctx.wsHub->messagesReceived();
+  }
+
   // Whatever the board runs as tasks, and how close each came to filling its
   // stack. Absent on a board that runs none.
   if (m.renderStackFree != 0) {

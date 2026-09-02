@@ -75,10 +75,23 @@ struct Snapshot {
   // this is how the sizes chosen in board/esp32s3/exec.cpp are checked rather
   // than trusted, so an undersized one shows up as a number well before it
   // shows up as a crash.
+  // Settings writes actually made. Against the number of changes, this is the
+  // debounce made visible: fifty in five seconds should be one.
+  uint32_t persistWrites;
+  // Events dropped because a listener fell behind. Non-zero means the fan-out
+  // is not keeping up, which is worth knowing before someone reports that a
+  // browser missed an update.
+  uint32_t eventsDropped;
+
   uint32_t renderStackFree;
   uint32_t netStackFree;
   uint32_t mvStackFree;
 };
+
+// Totals main.cpp owns, handed in rather than reached for: metrics is a board
+// module and has no business knowing what a setting is.
+void recordPersistWrites(uint32_t writes);
+void recordEventsDropped(uint32_t dropped);
 
 Snapshot snapshot();
 
@@ -95,6 +108,8 @@ inline void markLoop() {}
 inline void tick() {}
 inline void recordRequest(uint32_t) {}
 inline void recordAuth(uint32_t) {}
+inline void recordPersistWrites(uint32_t) {}
+inline void recordEventsDropped(uint32_t) {}
 
 #endif  // METRICS_ENABLED
 
