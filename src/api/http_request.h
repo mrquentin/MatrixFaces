@@ -12,6 +12,7 @@ struct HttpRequest {
   static constexpr size_t kTargetCap = 96;
   static constexpr size_t kAuthorizationCap = 192;
   static constexpr size_t kBodyCap = 256;
+  static constexpr size_t kWebSocketKeyCap = 32;
 
   char method[kMethodCap];
   // The request target exactly as sent, query string included. This is what the
@@ -20,6 +21,11 @@ struct HttpRequest {
   // `target` truncated at '?', used for routing only.
   char path[kTargetCap];
   char authorization[kAuthorizationCap];
+  // Sec-WebSocket-Key, when the request carried one. Empty otherwise, which is
+  // how the upgrade route tells a WebSocket handshake from a plain GET of the
+  // same path. Base64 of 16 bytes is 24 characters; the cap is the RFC's
+  // fixed size plus room to notice something longer.
+  char websocketKey[kWebSocketKeyCap];
   char body[kBodyCap + 1];
   size_t bodyLen;
   uint32_t contentLength;

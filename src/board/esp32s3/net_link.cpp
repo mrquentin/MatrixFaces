@@ -176,4 +176,39 @@ void finishRequest() {
 
 Client &outboundClient() { return g_outbound; }
 
+// --- retained connections ---------------------------------------------------
+//
+// A WiFiClient copy shares the underlying socket by reference count here, so
+// assigning into a slot keeps the connection alive after g_request is reused
+// by the next accept(). That is exactly what makes this possible on the S3 and
+// not on the M4, where the NINA hands out a small fixed pool.
+namespace {
+
+WiFiClient g_retained[kMaxRetained];
+
+}  // namespace
+
+int8_t retain() {
+  for (uint8_t i = 0; i < kMaxRetained; ++i) {
+    if (g_retained[i]) continue;
+    g_retained[i] = g_request;
+    // Stop lending it: the slot owns it now, and finishRequest() must not
+    // close it out from under the slot.
+    g_request = WiFiClient();
+    return static_cast<int8_t>(i);
+  }
+  return -1;
+}
+
+Client *retained(uint8_t slot) {
+  if (slot >= kMaxRetained) return nullptr;
+  return g_retained[slot] ? &g_retained[slot] : nullptr;
+}
+
+void release(uint8_t slot) {
+  if (slot >= kMaxRetained) return;
+  if (g_retained[slot]) g_retained[slot].stop();
+  g_retained[slot] = WiFiClient();
+}
+
 }  // namespace net_link

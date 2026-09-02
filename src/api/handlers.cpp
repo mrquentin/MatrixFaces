@@ -8,6 +8,7 @@
 
 #include "api/json_util.h"
 #include "api/router.h"
+#include "api/websocket.h"
 // Unqualified: -Isrc/board/<target> decides whose capabilities these are.
 #include "board_caps.h"
 
@@ -488,6 +489,57 @@ void handleRevokeClient(Client &client, const HttpRequest &, const char *wildcar
   sendJson(client, 200, "OK", doc);
 }
 
+// Turns an authenticated GET into a WebSocket. Authentication already happened
+// -- this route sits under /api/ like every other, so handleRequest() has
+// verified the signature over the request before reaching here, and the
+// connection inherits that. There is no second authentication step and no
+// token: the socket is trusted because the request that created it was.
+void handleWebSocketUpgrade(Client &client, const HttpRequest &request, const char *,
+                            ApiContext &ctx) {
+  // A capability, not an #ifdef: the M4 compiles this and answers honestly.
+  // Its socket pool is shared with the listening server, so a held-open
+  // connection is one the server may need.
+  if (!board_caps::kHasWebSocket || ctx.wsHub == nullptr) {
+    sendErrorResponse(client, 501, "Not Implemented", "websocket_unsupported");
+    return;
+  }
+
+  if (request.websocketKey[0] == ' ') {
+    sendErrorResponse(client, 400, "Bad Request", "expected_websocket_key");
+    return;
+  }
+
+  char accept[ws::kAcceptKeyCap + 1];
+  if (!ws::acceptKey(request.websocketKey, accept, sizeof(accept))) {
+    sendErrorResponse(client, 400, "Bad Request", "invalid_websocket_key");
+    return;
+  }
+
+  // Taken before the 101 is written: once the response goes out the peer will
+  // start framing, and refusing after that would leave it talking WebSocket
+  // to a socket about to be closed.
+  const int8_t slot = net_link::retain();
+  if (slot < 0 || !ctx.wsHub->adopt(slot)) {
+    if (slot >= 0) net_link::release(static_cast<uint8_t>(slot));
+    sendErrorResponse(client, 503, "Service Unavailable", "too_many_connections");
+    return;
+  }
+
+  Client *upgraded = net_link::retained(static_cast<uint8_t>(slot));
+  if (upgraded == nullptr) return;
+
+  upgraded->print(F("HTTP/1.1 101 Switching Protocols\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Accept: "));
+  upgraded->print(accept);
+  upgraded->print(F("\r\n\r\n"));
+
+  Serial.print(F("[ws] upgraded, "));
+  Serial.print(ctx.wsHub->count());
+  Serial.println(F(" connection(s) open"));
+}
+
 #if METRICS_ENABLED
 void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext &ctx) {
   const metrics::Snapshot m = metrics::snapshot();
@@ -557,6 +609,7 @@ constexpr Route kRoutes[] = {
     {"POST", "/pair", handlePair, false},
 
     {"GET", "/api/status", handleStatus, true},
+    {"GET", "/api/ws", handleWebSocketUpgrade, true},
     {"POST", "/api/led", handleSetLed, true},
     {"GET", "/api/clients", handleListClients, true},
     {"GET", "/api/apps", handleListApps, true},
@@ -573,6 +626,43 @@ constexpr Route kRoutes[] = {
 constexpr size_t kRouteCount = sizeof(kRoutes) / sizeof(kRoutes[0]);
 
 }  // namespace
+
+void handleWsMessage(const char *json, size_t len, ApiContext &ctx) {
+  (void)len;
+
+  JsonDocument body;
+  if (deserializeJson(body, json) != DeserializationError::Ok) return;
+  if (!body["app"].is<uint32_t>() || !body["key"].is<const char *>()) return;
+
+  const uint32_t appIndex = body["app"].as<uint32_t>();
+  if (appIndex >= ctx.scheduler.count()) return;
+
+  const char *key = body["key"].as<const char *>();
+  const uint8_t settingCount = ctx.scheduler.settingCount(static_cast<uint8_t>(appIndex));
+
+  for (uint8_t i = 0; i < settingCount; ++i) {
+    const SettingDescriptor &descriptor =
+        ctx.scheduler.settingDescriptor(static_cast<uint8_t>(appIndex), i);
+    if (strcmp(descriptor.key, key) != 0) continue;
+
+    SettingValue value{};
+    if (!readSettingValue(body["value"], descriptor, value)) return;
+    if (!ctx.scheduler.validateSetting(static_cast<uint8_t>(appIndex), descriptor.key, value)) {
+      return;
+    }
+
+    // The same command every other mutation goes through. A full queue drops
+    // this one: there is no status code to send back on a broadcast socket,
+    // and the client will see the state it did not change in the next event.
+    Command command{};
+    command.kind = Command::Kind::kApplySetting;
+    command.appIndex = static_cast<uint8_t>(appIndex);
+    strncpy(command.key, descriptor.key, sizeof(command.key) - 1);
+    command.value = value;
+    rtos::commandPost(command);
+    return;
+  }
+}
 
 void handleRequest(Client &client, const HttpRequest &request, ApiContext &ctx) {
   char wildcard[kWildcardCap];

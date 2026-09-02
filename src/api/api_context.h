@@ -7,6 +7,7 @@
 #include "api/pairing_window.h"
 #include "apps/app_scheduler.h"
 #include "board/time_source.h"
+#include "api/ws_hub.h"
 #include "net/multiviewer_parse.h"
 
 // Everything the API layer is allowed to touch, handed in by the composition
@@ -39,4 +40,9 @@ struct ApiContext {
   // pure parse header rather than the client, so the API layer picks up no
   // transport dependency.
   const mv::Counters *mvCounters;
+
+  // Open WebSocket connections, or null on a board that holds none. The
+  // upgrade route hands adopted connections here; nothing else touches it,
+  // because it belongs to the network task alone.
+  WsHub *wsHub;
 };

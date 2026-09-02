@@ -105,6 +105,15 @@ HttpReadStatus readHttpRequest(Client &client, HttpRequest &request) {
       continue;
     }
 
+    value = headerValue(line, "sec-websocket-key");
+    if (value != nullptr) {
+      // A key that does not fit is left empty rather than truncated: the
+      // handshake would fail anyway, and an empty one is how the route says
+      // "this was not a WebSocket request" -- which is the honest answer.
+      copyCapped(value, strlen(value), request.websocketKey, sizeof(request.websocketKey));
+      continue;
+    }
+
     value = headerValue(line, "content-length");
     if (value != nullptr) {
       uint32_t parsed = 0;
