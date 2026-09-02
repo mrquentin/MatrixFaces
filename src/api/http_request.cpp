@@ -3,47 +3,16 @@
 #include <Arduino.h>
 #include <cstring>
 
+#include "net/stream_read.h"
+
 namespace {
 
 constexpr uint32_t kReadTimeoutMs = 4000;
 constexpr size_t kLineCap = 256;
 constexpr uint16_t kMaxHeaders = 40;
-
-enum LineStatus { kLineOk, kLineTruncated, kLineTimeout };
-
-// Reads one CRLF-terminated line. Oversized lines are consumed to the end of the
-// line so the parser stays in sync, and reported as truncated.
-LineStatus readLine(WiFiClient &client, char *out, size_t cap, size_t &length) {
-  size_t n = 0;
-  bool overflowed = false;
-  const uint32_t start = millis();
-
-  while (millis() - start < kReadTimeoutMs) {
-    const int c = client.read();
-    if (c < 0) {
-      if (!client.connected() && client.available() == 0) break;
-      delay(1);
-      continue;
-    }
-
-    if (c == '\n') {
-      while (n > 0 && out[n - 1] == '\r') --n;
-      out[n] = '\0';
-      length = n;
-      return overflowed ? kLineTruncated : kLineOk;
-    }
-
-    if (n + 1 < cap) {
-      out[n++] = static_cast<char>(c);
-    } else {
-      overflowed = true;
-    }
-  }
-
-  out[0] = '\0';
-  length = 0;
-  return kLineTimeout;
-}
+// Long enough to clear whatever the peer already sent, short enough that a
+// client which keeps talking cannot stall the loop.
+constexpr uint32_t kDrainTimeoutMs = 200;
 
 bool equalsIgnoringCase(const char *a, const char *b, size_t len) {
   for (size_t i = 0; i < len; ++i) {
@@ -74,25 +43,18 @@ bool copyCapped(const char *src, size_t srcLen, char *dest, size_t cap) {
   return true;
 }
 
-// Drains whatever is left so the client sees a clean close rather than a reset.
-void drain(WiFiClient &client) {
-  const uint32_t start = millis();
-  while (client.available() > 0 && millis() - start < 200) {
-    client.read();
-  }
-}
-
 }  // namespace
 
-HttpReadStatus readHttpRequest(WiFiClient &client, HttpRequest &request) {
+HttpReadStatus readHttpRequest(Client &client, HttpRequest &request) {
   memset(&request, 0, sizeof(request));
 
   char line[kLineCap];
   size_t lineLen = 0;
 
-  const LineStatus requestLine = readLine(client, line, sizeof(line), lineLen);
-  if (requestLine == kLineTimeout) return kHttpTimeout;
-  if (requestLine == kLineTruncated) return kHttpTargetTooLong;
+  const net::LineStatus requestLine =
+      net::readLine(client, line, sizeof(line), lineLen, kReadTimeoutMs);
+  if (requestLine == net::LineStatus::kTimeout) return kHttpTimeout;
+  if (requestLine == net::LineStatus::kTruncated) return kHttpTargetTooLong;
 
   // "METHOD SP TARGET SP HTTP/1.1"
   const char *methodEnd = strchr(line, ' ');
@@ -122,11 +84,12 @@ HttpReadStatus readHttpRequest(WiFiClient &client, HttpRequest &request) {
   while (true) {
     if (++headerCount > kMaxHeaders) return kHttpHeaderTooLong;
 
-    const LineStatus status = readLine(client, line, sizeof(line), lineLen);
-    if (status == kLineTimeout) return kHttpTimeout;
-    if (lineLen == 0 && status == kLineOk) break;  // end of headers
+    const net::LineStatus status =
+        net::readLine(client, line, sizeof(line), lineLen, kReadTimeoutMs);
+    if (status == net::LineStatus::kTimeout) return kHttpTimeout;
+    if (lineLen == 0 && status == net::LineStatus::kOk) break;  // end of headers
 
-    if (status == kLineTruncated) {
+    if (status == net::LineStatus::kTruncated) {
       // Only Authorization is long enough to plausibly overflow, and silently
       // using a truncated one would turn a client bug into a signature failure.
       if (headerValue(line, "authorization") != nullptr) authorizationTruncated = true;
@@ -157,25 +120,17 @@ HttpReadStatus readHttpRequest(WiFiClient &client, HttpRequest &request) {
   if (authorizationTruncated) return kHttpHeaderTooLong;
   if (request.contentLength > HttpRequest::kBodyCap) return kHttpBodyTooLarge;
 
-  const uint32_t start = millis();
-  while (request.bodyLen < request.contentLength) {
-    const int c = client.read();
-    if (c < 0) {
-      if (millis() - start >= kReadTimeoutMs) return kHttpTimeout;
-      if (!client.connected() && client.available() == 0) return kHttpTimeout;
-      delay(1);
-      continue;
-    }
-    request.body[request.bodyLen++] = static_cast<char>(c);
+  if (!net::readExactly(client, request.body, request.contentLength, kReadTimeoutMs)) {
+    return kHttpTimeout;
   }
+  request.bodyLen = request.contentLength;
   request.body[request.bodyLen] = '\0';
 
-  drain(client);
+  net::drainBuffered(client, kDrainTimeoutMs);
   return kHttpOk;
 }
 
-void sendJsonResponse(WiFiClient &client, int statusCode, const char *statusText,
-                      const char *json) {
+void sendJsonResponse(Client &client, int statusCode, const char *statusText, const char *json) {
   client.print(F("HTTP/1.1 "));
   client.print(statusCode);
   client.print(' ');
@@ -189,7 +144,7 @@ void sendJsonResponse(WiFiClient &client, int statusCode, const char *statusText
   client.print(json);
 }
 
-void sendErrorResponse(WiFiClient &client, int statusCode, const char *statusText,
+void sendErrorResponse(Client &client, int statusCode, const char *statusText,
                        const char *errorCode) {
   char json[96];
   snprintf(json, sizeof(json), R"({"error":"%s"})", errorCode);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Client.h>
+
 #include <cstdint>
 
 // Local-time offset from UTC, resolved from the board's public IP via an
@@ -10,6 +12,11 @@
 // itself always stays pure UTC -- HMAC request signing depends on that.
 class TimezoneOffset {
  public:
+  // `transport` is borrowed, not owned, and is reconnected on each lookup. It
+  // must not be shared with another consumer: connecting tears down whatever
+  // connection the instance was already holding.
+  explicit TimezoneOffset(Client &transport) : transport_(transport) {}
+
   // Resolves on first call, then re-resolves periodically to track DST
   // changes. Safe to call every loop() iteration; it throttles itself.
   void maintain();
@@ -26,6 +33,7 @@ class TimezoneOffset {
 
   bool resolve();
 
+  Client &transport_;
   bool valid_ = false;
   int32_t offsetSeconds_ = 0;
   uint32_t lastAttemptMs_ = 0;

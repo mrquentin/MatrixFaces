@@ -16,6 +16,10 @@ class F1FlagsApp : public App {
  public:
   static constexpr size_t kHostCap = 32;
 
+  // The socket the MultiViewer poll runs over. Forwarded straight to
+  // MultiViewerClient; ownership stays at the composition root.
+  explicit F1FlagsApp(Client &transport) : client_(transport) {}
+
   const char *name() const override { return "f1flags"; }
   void begin(Adafruit_Protomatter &matrix) override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;

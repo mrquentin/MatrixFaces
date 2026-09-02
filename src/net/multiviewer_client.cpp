@@ -1,11 +1,12 @@
 #include "multiviewer_client.h"
 
 #include <Arduino.h>
-#include <WiFiNINA.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+#include "net/stream_read.h"
 
 namespace {
 
@@ -142,8 +143,7 @@ void MultiViewerClient::setHost(IPAddress host) {
 }
 
 bool MultiViewerClient::fetch(char *buf, size_t cap, size_t &outLen) {
-  WiFiClient client;
-  if (!client.connect(host_, kPort)) return false;
+  if (!transport_.connect(host_, kPort)) return false;
 
   char header[128];
   const int headerLen =
@@ -155,26 +155,14 @@ bool MultiViewerClient::fetch(char *buf, size_t cap, size_t &outLen) {
                "Connection: close\r\n\r\n",
                static_cast<unsigned>(sizeof(kQueryBody) - 1));
   if (headerLen <= 0 || static_cast<size_t>(headerLen) >= sizeof(header)) {
-    client.stop();
+    transport_.stop();
     return false;
   }
-  client.write(reinterpret_cast<const uint8_t *>(header), static_cast<size_t>(headerLen));
-  client.write(reinterpret_cast<const uint8_t *>(kQueryBody), sizeof(kQueryBody) - 1);
+  transport_.write(reinterpret_cast<const uint8_t *>(header), static_cast<size_t>(headerLen));
+  transport_.write(reinterpret_cast<const uint8_t *>(kQueryBody), sizeof(kQueryBody) - 1);
 
-  size_t len = 0;
-  const uint32_t start = millis();
-  while (len + 1 < cap) {
-    const int c = client.read();
-    if (c < 0) {
-      if (millis() - start >= kResponseTimeoutMs) break;
-      if (!client.connected() && client.available() == 0) break;
-      delay(1);
-      continue;
-    }
-    buf[len++] = static_cast<char>(c);
-  }
-  buf[len] = '\0';
-  client.stop();
+  const size_t len = net::readUntilClose(transport_, buf, cap, kResponseTimeoutMs);
+  transport_.stop();
 
   if (len == 0) return false;
   outLen = len;

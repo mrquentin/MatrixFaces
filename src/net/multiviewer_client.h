@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Client.h>
 #include <IPAddress.h>
 
 #include <cstddef>
@@ -28,6 +29,11 @@ class MultiViewerClient {
   };
 
   static constexpr size_t kTlaCap = 4;  // 3-letter driver acronym + terminator
+
+  // `transport` is borrowed, not owned, and is reconnected on each poll. It
+  // must not be shared with another consumer: connecting tears down whatever
+  // connection the instance was already holding.
+  explicit MultiViewerClient(Client &transport) : transport_(transport) {}
 
   // Host to poll; port 10101 is MultiViewer's fixed local API port. An unset
   // (all-zero) address means "not configured" and poll() is then a no-op.
@@ -106,6 +112,7 @@ class MultiViewerClient {
   void resetSessionState();
   const char *tlaForRacingNumber(uint16_t racingNumber) const;
 
+  Client &transport_;
   IPAddress host_;
   uint32_t lastPollMs_ = 0;
   bool everPolled_ = false;
