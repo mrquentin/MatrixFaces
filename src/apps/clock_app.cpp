@@ -6,9 +6,8 @@
 namespace {
 }  // namespace
 
-ClockApp::ClockApp(const TimeSource &clock, const TimezoneOffset &tz)
+ClockApp::ClockApp(const TimeSource &clock)
     : clock_(clock),
-      tz_(tz),
       bindings_{
           SettingsBag::color("color", "Text color (0xRRGGBB)", colorRgb_),
           SettingsBag::integer("size", "Text scale (1-2)", 1, 2, textSize_),
@@ -32,20 +31,15 @@ void ClockApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   char text[9];  // "HH:MM:SS"
   uint32_t renderKey;
 
-  if (clock_.isValid()) {
-    const uint32_t epoch = clock_.now();
-    renderKey = epoch;
+  std::tm local{};
+  if (clock_.localNow(local)) {
+    // Keyed on the UTC epoch: one repaint per second, and a change of offset
+    // lands on the next tick rather than needing its own trigger.
+    renderKey = clock_.now();
     if (renderKey == lastRendered_) return;
 
-    // int64_t so a negative offset (west of UTC) can't underflow the
-    // subsequent modulo; ((x % 86400) + 86400) % 86400 then normalizes to
-    // [0, 86400) regardless of the sign of the shifted epoch.
-    const int64_t local = static_cast<int64_t>(epoch) + tz_.offsetSeconds();
-    const uint32_t secondOfDay = static_cast<uint32_t>(((local % 86400) + 86400) % 86400);
-    const unsigned hours = secondOfDay / 3600;
-    const unsigned minutes = (secondOfDay / 60) % 60;
-    const unsigned seconds = secondOfDay % 60;
-    snprintf(text, sizeof(text), "%02u:%02u:%02u", hours, minutes, seconds);
+    snprintf(text, sizeof(text), "%02u:%02u:%02u", static_cast<unsigned>(local.tm_hour),
+             static_cast<unsigned>(local.tm_min), static_cast<unsigned>(local.tm_sec));
   } else {
     renderKey = kNotSyncedRendered;
     if (renderKey == lastRendered_) return;

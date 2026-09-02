@@ -1,4 +1,4 @@
-#include "flash_block.h"
+#include "board/samd51/flash_block.h"
 
 #include <Arduino.h>
 

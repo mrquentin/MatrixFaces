@@ -8,6 +8,7 @@
 #include "api/json_util.h"
 #include "api/router.h"
 #include "board/metrics.h"
+#include "board/net_link.h"
 #include "board/secure_random.h"
 #include "hex.h"
 
@@ -174,7 +175,7 @@ void handleStatus(Client &client, const HttpRequest &, const char *, ApiContext 
   JsonDocument doc;
   doc["uptime_s"] = millis() / 1000;
   doc["led"] = ctx.desiredLedState;
-  doc["rssi"] = ctx.rssiDbm();
+  doc["rssi"] = net_link::rssiDbm();
   doc["paired_clients"] = ctx.credentials.count();
   doc["time"] = ctx.clock.isValid() ? ctx.clock.now() : 0;
   sendJson(client, 200, "OK", doc);
