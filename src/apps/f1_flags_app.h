@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "app.h"
+#include "apps/settings_bag.h"
 #include "flag_display.h"
 #include "net/multiviewer_client.h"
 
@@ -20,16 +21,14 @@ class F1FlagsApp : public App {
   // TimeSource the same way). The client is owned by the composition root, so
   // its 32 KB response buffer is visible there rather than buried inside an
   // app that only happens to be the current consumer.
-  explicit F1FlagsApp(MultiViewerClient &client) : client_(client) {}
+  explicit F1FlagsApp(MultiViewerClient &client);
 
   const char *name() const override { return "f1flags"; }
   void begin(Adafruit_Protomatter &matrix) override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
 
-  uint8_t settingCount() const override { return 1; }
-  const SettingDescriptor &settingDescriptor(uint8_t index) const override;
-  bool getSetting(const char *key, SettingValue &out) const override;
-  bool setSetting(const char *key, const SettingValue &value) override;
+  SettingsBag *settings() override { return &settings_; }
+  void onSettingChanged(const char *key) override;
 
  private:
   static constexpr uint8_t kMaxTextSize = 4;
@@ -65,4 +64,7 @@ class F1FlagsApp : public App {
   char host_[kHostCap] = "";
   RenderState lastRendered_;
   bool everRendered_ = false;
+
+  SettingsBag::Binding bindings_[1];
+  SettingsBag settings_;
 };

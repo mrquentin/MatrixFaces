@@ -4,13 +4,26 @@
 
 namespace {
 
-constexpr SettingDescriptor kSettings[] = {
-    {"text", "Display text", SettingType::kString, 0, 0, TextApp::kTextCap - 1},
-    {"size", "Text scale (1-2)", SettingType::kInt, 1, 2, 0},
-    {"color", "Text color (0xRRGGBB)", SettingType::kColor, 0, 0xFFFFFF, 0},
-};
-
 }  // namespace
+
+TextApp::TextApp()
+    : bindings_{
+          SettingsBag::text("text", "Display text", text_),
+          SettingsBag::integer("size", "Text scale (1-2)", 1, 2, size_),
+          SettingsBag::color("color", "Text color (0xRRGGBB)", colorRgb_),
+      },
+      settings_(*this, bindings_, 3) {}
+
+void TextApp::onSettingChanged(const char *key) {
+  if (strcmp(key, "color") == 0) {
+    // Position is unaffected, but a static frame is only drawn once, so it
+    // has to be invalidated to pick up the new colour.
+    staticDrawn_ = false;
+    return;
+  }
+  // text or size: bounds and scroll-vs-static both have to be recomputed.
+  needsLayout_ = true;
+}
 
 void TextApp::begin(Adafruit_Protomatter &matrix) {
   (void)matrix;
@@ -79,56 +92,3 @@ void TextApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   if (--scrollX_ < scrollMinX_) scrollX_ = matrix.width();
 }
 
-const SettingDescriptor &TextApp::settingDescriptor(uint8_t index) const {
-  static constexpr SettingDescriptor kNone{"", "", SettingType::kBool, 0, 0, 0};
-  return index < settingCount() ? kSettings[index] : kNone;
-}
-
-bool TextApp::getSetting(const char *key, SettingValue &out) const {
-  if (strcmp(key, "text") == 0) {
-    out.type = SettingType::kString;
-    strncpy(out.stringValue, text_, sizeof(out.stringValue) - 1);
-    out.stringValue[sizeof(out.stringValue) - 1] = '\0';
-    return true;
-  }
-  if (strcmp(key, "size") == 0) {
-    out.type = SettingType::kInt;
-    out.intValue = size_;
-    return true;
-  }
-  if (strcmp(key, "color") == 0) {
-    out.type = SettingType::kColor;
-    out.intValue = colorRgb_;
-    return true;
-  }
-  return false;
-}
-
-bool TextApp::setSetting(const char *key, const SettingValue &value) {
-  if (strcmp(key, "text") == 0) {
-    if (value.type != SettingType::kString) return false;
-    if (strlen(value.stringValue) > kTextCap - 1) return false;
-
-    strncpy(text_, value.stringValue, sizeof(text_) - 1);
-    text_[sizeof(text_) - 1] = '\0';
-    needsLayout_ = true;
-    return true;
-  }
-  if (strcmp(key, "size") == 0) {
-    if (value.type != SettingType::kInt) return false;
-    if (value.intValue < 1 || value.intValue > 2) return false;
-
-    size_ = value.intValue;
-    needsLayout_ = true;
-    return true;
-  }
-  if (strcmp(key, "color") == 0) {
-    if (value.type != SettingType::kColor) return false;
-    if (value.intValue < 0 || value.intValue > 0xFFFFFF) return false;
-
-    colorRgb_ = value.intValue;
-    staticDrawn_ = false;  // redraw with the new color even if position is unchanged
-    return true;
-  }
-  return false;
-}

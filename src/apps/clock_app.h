@@ -4,6 +4,7 @@
 
 #include "app.h"
 #include "board/time_source.h"
+#include "apps/settings_bag.h"
 #include "net/timezone_offset.h"
 
 // Renders HH:MM:SS local time, centered on the panel, redrawing once per
@@ -12,16 +13,14 @@
 // successful lookup resolves it).
 class ClockApp : public App {
  public:
-  ClockApp(const TimeSource &clock, const TimezoneOffset &tz) : clock_(clock), tz_(tz) {}
+  ClockApp(const TimeSource &clock, const TimezoneOffset &tz);
 
   const char *name() const override { return "clock"; }
   void begin(Adafruit_Protomatter &matrix) override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
 
-  uint8_t settingCount() const override { return 2; }
-  const SettingDescriptor &settingDescriptor(uint8_t index) const override;
-  bool getSetting(const char *key, SettingValue &out) const override;
-  bool setSetting(const char *key, const SettingValue &value) override;
+  SettingsBag *settings() override { return &settings_; }
+  void onSettingChanged(const char *key) override;
 
  private:
   // Sentinels for lastRendered_, distinct from any real epoch second (those
@@ -34,4 +33,7 @@ class ClockApp : public App {
   uint32_t lastRendered_ = kNeverRendered;
   int32_t colorRgb_ = 0x00b4ff;  // matches the previous hardcoded color565(0, 180, 255)
   int32_t textSize_ = 1;
+
+  SettingsBag::Binding bindings_[2];
+  SettingsBag settings_;
 };

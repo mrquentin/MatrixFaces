@@ -31,7 +31,10 @@ void AppSettingsStore::load(AppScheduler &scheduler) {
 
     for (uint8_t appIndex = 0; appIndex < scheduler.count(); ++appIndex) {
       if (strcmp(scheduler.name(appIndex), record.appName) != 0) continue;
-      if (scheduler.setSetting(appIndex, record.key, record.value)) ++applied;
+      // Stored records go through the same validation as a live request, so a
+      // value that a firmware update has since narrowed out of range is
+      // dropped rather than restored.
+      if (scheduler.applySetting(appIndex, record.key, record.value)) ++applied;
       break;
     }
   }

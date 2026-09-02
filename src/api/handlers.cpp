@@ -297,8 +297,9 @@ void handleGetAppSettings(Client &client, const HttpRequest &, const char *wildc
   sendAppSettings(client, ctx, appIndex);
 }
 
-// Reads `descriptor`'s value out of the body. Returns false if the key is
-// present but malformed or out of range for the descriptor.
+// Converts the JSON value for `descriptor.key` into a SettingValue. This is
+// only the JSON-shape half; range and length are the SettingsBag's to judge,
+// so the limits live in exactly one place.
 bool readSettingValue(JsonVariantConst raw, const SettingDescriptor &descriptor,
                       SettingValue &value) {
   value.type = descriptor.type;
@@ -310,18 +311,18 @@ bool readSettingValue(JsonVariantConst raw, const SettingDescriptor &descriptor,
       return true;
 
     case SettingType::kInt:
-    case SettingType::kColor: {
+    case SettingType::kColor:
       if (!raw.is<int32_t>()) return false;
       value.intValue = raw.as<int32_t>();
-      return value.intValue >= descriptor.intMin && value.intValue <= descriptor.intMax;
-    }
+      return true;
 
     case SettingType::kString: {
       if (!raw.is<const char *>()) return false;
       const char *text = raw.as<const char *>();
       const size_t len = strlen(text);
+      // A string too long for SettingValue itself cannot be carried far enough
+      // to be judged, so it is rejected here rather than silently clipped.
       if (len >= sizeof(value.stringValue)) return false;
-      if (len > descriptor.maxLen) return false;
       memcpy(value.stringValue, text, len + 1);
       return true;
     }
@@ -357,7 +358,8 @@ void handleSetAppSettings(Client &client, const HttpRequest &request, const char
     anyPresent = true;
 
     SettingValue value{};
-    if (!readSettingValue(raw, descriptor, value)) {
+    if (!readSettingValue(raw, descriptor, value) ||
+        !ctx.scheduler.validateSetting(appIndex, descriptor.key, value)) {
       sendErrorResponse(client, 400, "Bad Request", "invalid_setting_value");
       return;
     }
@@ -376,9 +378,9 @@ void handleSetAppSettings(Client &client, const HttpRequest &request, const char
 
     SettingValue value{};
     readSettingValue(raw, descriptor, value);
-    if (!ctx.scheduler.setSetting(appIndex, descriptor.key, value)) {
-      // Only reachable if an app's own setSetting() is stricter than its
-      // descriptor; still fail loudly rather than silently drop the write.
+    if (!ctx.scheduler.applySetting(appIndex, descriptor.key, value)) {
+      // Pass 1 validated every one of these against the same bag, so reaching
+      // here means validate and apply disagree -- a bug, not bad input.
       sendErrorResponse(client, 500, "Internal Server Error",
                         "setting_rejected_after_validation");
       return;

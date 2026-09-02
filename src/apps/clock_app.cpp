@@ -4,11 +4,20 @@
 #include <cstring>
 
 namespace {
-constexpr SettingDescriptor kSettings[] = {
-    {"color", "Text color (0xRRGGBB)", SettingType::kColor, 0, 0xFFFFFF, 0},
-    {"size", "Text scale (1-2)", SettingType::kInt, 1, 2, 0},
-};
 }  // namespace
+
+ClockApp::ClockApp(const TimeSource &clock, const TimezoneOffset &tz)
+    : clock_(clock),
+      tz_(tz),
+      bindings_{
+          SettingsBag::color("color", "Text color (0xRRGGBB)", colorRgb_),
+          SettingsBag::integer("size", "Text scale (1-2)", 1, 2, textSize_),
+      },
+      settings_(*this, bindings_, 2) {}
+
+// Both settings change how the clock looks, so either one just forces the
+// next update() to repaint instead of skipping on an unchanged second.
+void ClockApp::onSettingChanged(const char *) { lastRendered_ = kNeverRendered; }
 
 void ClockApp::begin(Adafruit_Protomatter &matrix) {
   (void)matrix;
@@ -61,41 +70,3 @@ void ClockApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   matrix.show();
 }
 
-const SettingDescriptor &ClockApp::settingDescriptor(uint8_t index) const {
-  static constexpr SettingDescriptor kNone{"", "", SettingType::kBool, 0, 0, 0};
-  return index < settingCount() ? kSettings[index] : kNone;
-}
-
-bool ClockApp::getSetting(const char *key, SettingValue &out) const {
-  if (strcmp(key, "color") == 0) {
-    out.type = SettingType::kColor;
-    out.intValue = colorRgb_;
-    return true;
-  }
-  if (strcmp(key, "size") == 0) {
-    out.type = SettingType::kInt;
-    out.intValue = textSize_;
-    return true;
-  }
-  return false;
-}
-
-bool ClockApp::setSetting(const char *key, const SettingValue &value) {
-  if (strcmp(key, "color") == 0) {
-    if (value.type != SettingType::kColor) return false;
-    if (value.intValue < 0 || value.intValue > 0xFFFFFF) return false;
-
-    colorRgb_ = value.intValue;
-    lastRendered_ = kNeverRendered;  // force a redraw with the new color
-    return true;
-  }
-  if (strcmp(key, "size") == 0) {
-    if (value.type != SettingType::kInt) return false;
-    if (value.intValue < 1 || value.intValue > 2) return false;
-
-    textSize_ = value.intValue;
-    lastRendered_ = kNeverRendered;
-    return true;
-  }
-  return false;
-}
