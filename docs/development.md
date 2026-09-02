@@ -2,11 +2,34 @@
 
 ## Build, flash, and test
 
-    pio run -e adafruit_matrix_portal_m4 -t upload
+    pio run -e m4 -t upload
     pio device monitor
 
-    pio test -e adafruit_matrix_portal_m4    # runs on the board over serial
-    pio test -e native                       # needs a host g++/clang++ on PATH
+    pio test -e native      # host tests; needs gcc/g++ on PATH
+
+## Build environments
+
+| Env | What it is |
+|---|---|
+| `m4` | The shipping build: clock, text and F1 apps |
+| `m4_release` | `m4` with instrumentation compiled out (no `/api/metrics`) |
+| `native` | Host tests |
+
+Three rules keep the boards apart, and none of them is `#ifdef`:
+
+- **Sources** are selected by `build_src_filter`. A board's directory under
+  `src/board/` is either compiled or it is not.
+- **Headers** are found via `-Isrc/board/<target>`, so shared code writes
+  `#include "board_pins.h"` and the build decides whose.
+- **Apps** come from exactly one file under `src/variants/`, which is also
+  where their dependencies are constructed. A build that drops an app drops its
+  buffers too: the 32 KB MultiViewer response buffer lives next to the F1 app,
+  not in `main.cpp`, so it is not something every build has to carry.
+
+There is one variant today, so the filter simply takes the whole directory; a
+second would move the selection into the individual environments. A missing or
+duplicated `registerApps()` is a link error, which is the intended safety net
+for a filter mistake.
 
 ### Host test suites
 
@@ -45,7 +68,7 @@ of both board environments on every push — it never touches real hardware.
 `compile_commands.json` is machine-local and gitignored; regenerate it whenever
 include paths change, scoped to the board env:
 
-    pio run -e adafruit_matrix_portal_m4 -t compiledb
+    pio run -e m4 -t compiledb
 
 Always pass `-e`. A bare `pio run -t compiledb` walks every environment in
 declaration order and *overwrites* the file each pass instead of merging, so

@@ -4,8 +4,8 @@
 
 #include <cstdint>
 
-// Which flag to draw. Shared between F1FlagsApp and FlagTestApp so the two
-// never render it differently.
+// Which flag to draw. The drawing lives apart from the app that decides when
+// to draw it, so the two can be changed independently.
 enum class FlagKind : uint8_t {
   kYellow,
   kSafetyCar,

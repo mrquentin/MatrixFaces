@@ -6,16 +6,12 @@
 #include "api/api_context.h"
 #include "api/handlers.h"
 #include "api/http_request.h"
-#include "apps/clock_app.h"
-#include "apps/f1_flags_app.h"
-#include "apps/flag_test_app.h"
-#include "apps/text_app.h"
 #include "board/button.h"
 #include "board/metrics.h"
 #include "board/net_link.h"
 #include "board/samd51/board_pins.h"
 #include "board/secure_random.h"
-#include "net/multiviewer_client.h"
+#include "variants/registry.h"
 
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "dev"
@@ -42,29 +38,21 @@ Adafruit_Protomatter matrix(board_pins::kMatrixWidth, 4, 1, board_pins::kMatrixR
                             board_pins::kMatrixClock, board_pins::kMatrixLatch,
                             board_pins::kMatrixOe, true);
 AppScheduler appScheduler(matrix);
-// The single largest allocation in the firmware, at 17% of RAM. It lives here,
-// in plain sight, rather than as a function-local static inside the poll --
-// phase 3.2 moves it behind board/bigbuf.h so the S3 can put it in PSRAM and a
-// clock-only build can leave it out entirely.
-char multiViewerBuffer[kMvResponseCap];
-MultiViewerClient multiViewer(net_link::outboundClient(), multiViewerBuffer,
-                             sizeof(multiViewerBuffer));
-
-ClockApp clockApp(clockSource);
-TextApp textApp;
-F1FlagsApp f1FlagsApp(multiViewer);
-FlagTestApp flagTestApp;
 AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
 
 // The API layer's whole view of the firmware. Assembled once here; handlers
 // reach for nothing else.
+// Which apps exist is the variant's decision; it also tells us whether there
+// is a MultiViewer poll to report on.
+AppRegistry appRegistry{appScheduler, clockSource, nullptr};
+
 ApiContext apiContext{credentials,     authenticator,
                       pairing,         clockSource,
                       appScheduler,    appSettingsStore,
                       desiredLedState, FIRMWARE_VERSION,
-                      &multiViewer.counters()};
+                      nullptr};
 
 // Blinks the LED forever after printing a fatal boot error; never returns.
 [[noreturn]] void haltBlinking(const __FlashStringHelper *message) {
@@ -168,10 +156,8 @@ void setup() {
 
   // Bring up the RGB matrix before anything WiFi-related blocks, so the
   // clock app can render while the board is still negotiating a connection.
-  appScheduler.add(clockApp);
-  appScheduler.add(textApp);
-  appScheduler.add(f1FlagsApp);
-  appScheduler.add(flagTestApp);
+  registerApps(appRegistry);
+  apiContext.mvCounters = appRegistry.mvCounters;
   appSettingsStore.begin(appScheduler);
   const ProtomatterStatus matrixStatus = appScheduler.begin();
   if (matrixStatus != PROTOMATTER_OK) {

@@ -5,7 +5,9 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
+  # Host-run unit tests: the portable half of the firmware, built against the
+  # fakes in src/board/native. No board involved.
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,26 +20,48 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-${{ hashFiles('platformio.ini') }}
-          restore-keys: pio-
+          key: pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-
 
       - name: Install PlatformIO
         run: pip install -U platformio
 
-      # Host-run unit tests: SHA-256/HMAC known-answer vectors and header
-      # parsing, from lib/apiauth. No board involved.
       - name: Run native tests
         run: pio test -e native
 
-      # secrets.h is gitignored (real WiFi creds); use the placeholder so the
-      # board envs compile. Nothing here ever connects to WiFi.
+  # Every board environment, every push, so one board's change cannot silently
+  # break another's. The S3 joins this matrix in phase 3.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - m4
+          - m4_release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ matrix.environment }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ matrix.environment }}-
+            pio-
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      # secrets.h is gitignored (real WiFi creds); the placeholder is enough to
+      # compile. Nothing here ever connects to WiFi.
       - name: Stub secrets.h
         run: cp include/secrets.h.example include/secrets.h
 
-      # Board firmware never runs here (no hardware over serial), but a
-      # compile catches build breaks before they reach the device.
-      - name: Build board firmware
-        run: pio run -e adafruit_matrix_portal_m4
-
-      - name: Build release firmware
-        run: pio run -e release
+      - name: Build ${{ matrix.environment }}
+        run: pio run -e ${{ matrix.environment }}
