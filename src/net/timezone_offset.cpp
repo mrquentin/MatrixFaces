@@ -1,10 +1,11 @@
 #include "timezone_offset.h"
 
 #include <Arduino.h>
-#include <WiFiNINA.h>
 
 #include <cstdlib>
 #include <cstring>
+
+#include "net/stream_read.h"
 
 namespace {
 
@@ -18,28 +19,15 @@ constexpr size_t kResponseCap = 512;
 }  // namespace
 
 bool TimezoneOffset::resolve() {
-  WiFiClient client;
-  if (!client.connect(kHost, kPort)) return false;
+  if (!transport_.connect(kHost, kPort)) return false;
 
-  client.print(F("GET /json/?fields=status,offset HTTP/1.1\r\n"
-                  "Host: ip-api.com\r\n"
-                  "Connection: close\r\n\r\n"));
+  transport_.print(F("GET /json/?fields=status,offset HTTP/1.1\r\n"
+                     "Host: ip-api.com\r\n"
+                     "Connection: close\r\n\r\n"));
 
   char response[kResponseCap];
-  size_t len = 0;
-  const uint32_t start = millis();
-  while (len + 1 < sizeof(response)) {
-    const int c = client.read();
-    if (c < 0) {
-      if (millis() - start >= kResponseTimeoutMs) break;
-      if (!client.connected() && client.available() == 0) break;
-      delay(1);
-      continue;
-    }
-    response[len++] = static_cast<char>(c);
-  }
-  response[len] = '\0';
-  client.stop();
+  net::readUntilClose(transport_, response, sizeof(response), kResponseTimeoutMs);
+  transport_.stop();
 
   const char *body = strstr(response, "\r\n\r\n");
   if (body == nullptr) return false;

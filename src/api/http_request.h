@@ -1,6 +1,6 @@
 #pragma once
 
-#include <WiFiNINA.h>
+#include <Client.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -36,11 +36,15 @@ enum HttpReadStatus {
 
 // Reads a full request from `client`. Returns the first failure encountered;
 // the caller is responsible for sending an error response.
-HttpReadStatus readHttpRequest(WiFiClient &client, HttpRequest &request);
+//
+// `Client` rather than `WiFiClient` throughout: nothing here needs more than
+// the Arduino Client/Stream/Print contract, so the transport stays a detail of
+// the composition root and this code ports to a board with a different radio
+// unchanged.
+HttpReadStatus readHttpRequest(Client &client, HttpRequest &request);
 
-void sendJsonResponse(WiFiClient &client, int statusCode, const char *statusText,
-                      const char *json);
+void sendJsonResponse(Client &client, int statusCode, const char *statusText, const char *json);
 
 // Sends {"error":"<code>"} with the given status.
-void sendErrorResponse(WiFiClient &client, int statusCode, const char *statusText,
+void sendErrorResponse(Client &client, int statusCode, const char *statusText,
                        const char *errorCode);

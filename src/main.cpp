@@ -1,4 +1,5 @@
 #include <Adafruit_Protomatter.h>
+#include <Client.h>
 #include <SPI.h>
 #include <WiFiNINA.h>
 
@@ -40,6 +41,14 @@ constexpr uint32_t kPairingBlinkMs = 150;
 
 WiFiServer server(80);
 
+// Outbound sockets, one per consumer. WiFiClient reuses its socket across
+// connect/stop cycles, so a single instance per consumer is equivalent to the
+// short-lived locals these replace -- but two consumers sharing one instance
+// would tear down each other's connections, hence one each. Owned here so that
+// nothing under src/net or src/api has to know what the radio is.
+WiFiClient timezoneTransport;
+WiFiClient multiViewerTransport;
+
 CredentialStore credentials;
 TimeSource clockSource;
 Authenticator authenticator(credentials, clockSource);
@@ -69,10 +78,10 @@ constexpr uint8_t kMatrixOePin = 16;
 Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
                             kMatrixLatchPin, kMatrixOePin, true);
 AppScheduler appScheduler(matrix);
-TimezoneOffset timezoneOffset;
+TimezoneOffset timezoneOffset(timezoneTransport);
 ClockApp clockApp(clockSource, timezoneOffset);
 TextApp textApp;
-F1FlagsApp f1FlagsApp;
+F1FlagsApp f1FlagsApp(multiViewerTransport);
 FlagTestApp flagTestApp;
 AppSettingsStore appSettingsStore;
 
@@ -116,7 +125,7 @@ void connectWiFi() {
 
 // Unauthenticated discovery endpoint. Exposes only what a client needs to know
 // before it has credentials.
-void handleRoot(WiFiClient &client) {
+void handleRoot(Client &client) {
   char json[224];
   snprintf(json, sizeof(json),
            R"({"device":"matrixfaces","firmware_version":"%s","paired_clients":%u,)"
@@ -128,7 +137,7 @@ void handleRoot(WiFiClient &client) {
   sendJsonResponse(client, 200, "OK", json);
 }
 
-void handlePair(WiFiClient &client) {
+void handlePair(Client &client) {
   if (!pairing.isOpen()) {
     // Deliberately the same response whether the window never opened or has
     // already expired.
@@ -182,7 +191,7 @@ void handlePair(WiFiClient &client) {
   memset(secretHex, 0, sizeof(secretHex));
 }
 
-void handleStatus(WiFiClient &client) {
+void handleStatus(Client &client) {
   char json[192];
   snprintf(json, sizeof(json),
            R"({"uptime_s":%lu,"led":%s,"rssi":%ld,"paired_clients":%u,"time":%lu})",
@@ -302,7 +311,7 @@ bool extractJsonString(const char *json, const char *key, char *out, size_t cap)
   return true;
 }
 
-void handleSetLed(WiFiClient &client, const HttpRequest &request) {
+void handleSetLed(Client &client, const HttpRequest &request) {
   bool on = false;
   if (!extractJsonBool(request.body, "on", on)) {
     sendErrorResponse(client, 400, "Bad Request", "expected_on_boolean");
@@ -334,7 +343,7 @@ void appendJson(char *json, size_t cap, size_t &offset, const char *format, ...)
   if (offset >= cap) offset = cap - 1;
 }
 
-void handleListClients(WiFiClient &client) {
+void handleListClients(Client &client) {
   char json[320];
   size_t offset = 0;
   appendJson(json, sizeof(json), offset, R"({"clients":[)");
@@ -352,7 +361,7 @@ void handleListClients(WiFiClient &client) {
   sendJsonResponse(client, 200, "OK", json);
 }
 
-void handleGetActiveApp(WiFiClient &client) {
+void handleGetActiveApp(Client &client) {
   char json[80];
   snprintf(json, sizeof(json), R"({"index":%u,"name":"%s"})",
            static_cast<unsigned>(appScheduler.activeIndex()), appScheduler.activeName());
@@ -375,7 +384,7 @@ const char *settingTypeName(SettingType type) {
 
 // Buffer sized for kMaxApps (8) apps with several settings each; the two
 // registered today (clock: 0, text: 2) use well under a quarter of it.
-void handleListApps(WiFiClient &client) {
+void handleListApps(Client &client) {
   char json[1024];
   size_t offset = 0;
   appendJson(json, sizeof(json), offset, R"({"apps":[)");
@@ -415,7 +424,7 @@ void handleListApps(WiFiClient &client) {
   sendJsonResponse(client, 200, "OK", json);
 }
 
-void handleSetActiveApp(WiFiClient &client, const HttpRequest &request) {
+void handleSetActiveApp(Client &client, const HttpRequest &request) {
   uint32_t index = 0;
   if (!extractJsonUInt(request.body, "index", index)) {
     sendErrorResponse(client, 400, "Bad Request", "expected_index_integer");
@@ -435,7 +444,7 @@ void handleSetActiveApp(WiFiClient &client, const HttpRequest &request) {
 // Values only, keyed by descriptor -- the schema itself lives in
 // handleListApps(). `wrote` tracks comma placement independent of
 // getSetting() ever refusing an entry, so a skip never produces bad JSON.
-void handleGetAppSettings(WiFiClient &client, uint8_t appIndex) {
+void handleGetAppSettings(Client &client, uint8_t appIndex) {
   if (appIndex >= appScheduler.count()) {
     sendErrorResponse(client, 404, "Not Found", "unknown_app_index");
     return;
@@ -512,7 +521,7 @@ bool valueSatisfiesDescriptor(const SettingDescriptor &descriptor, const Setting
 // untouched (partial update); a key present but malformed or out of range
 // rejects the whole request, and rejects it *before* touching any app
 // state, so a later invalid field can't leave an earlier one applied.
-void handleSetAppSettings(WiFiClient &client, const HttpRequest &request, uint8_t appIndex) {
+void handleSetAppSettings(Client &client, const HttpRequest &request, uint8_t appIndex) {
   if (appIndex >= appScheduler.count()) {
     sendErrorResponse(client, 404, "Not Found", "unknown_app_index");
     return;
@@ -569,7 +578,7 @@ bool parseAppSettingsPath(const char *rest, uint8_t &index) {
 }
 
 #if METRICS_ENABLED
-void handleMetrics(WiFiClient &client) {
+void handleMetrics(Client &client) {
   const metrics::Snapshot m = metrics::snapshot();
 
   char json[416];
@@ -594,7 +603,7 @@ void handleMetrics(WiFiClient &client) {
 }
 #endif  // METRICS_ENABLED
 
-void handleRevokeClient(WiFiClient &client, const char *idHex) {
+void handleRevokeClient(Client &client, const char *idHex) {
   uint8_t id[apiauth::kClientIdBytes];
   if (strlen(idHex) != apiauth::kClientIdHexLen ||
       !apiauth::fromHex(idHex, apiauth::kClientIdHexLen, id, sizeof(id))) {
@@ -621,7 +630,7 @@ bool methodIs(const HttpRequest &request, const char *method) {
   return strcmp(request.method, method) == 0;
 }
 
-void routeAuthenticated(WiFiClient &client, const HttpRequest &request) {
+void routeAuthenticated(Client &client, const HttpRequest &request) {
   if (methodIs(request, "GET") && strcmp(request.path, "/api/status") == 0) {
     handleStatus(client);
     return;
@@ -680,7 +689,7 @@ void routeAuthenticated(WiFiClient &client, const HttpRequest &request) {
   sendErrorResponse(client, 404, "Not Found", "unknown_endpoint");
 }
 
-void routeRequest(WiFiClient &client, const HttpRequest &request) {
+void routeRequest(Client &client, const HttpRequest &request) {
   if (methodIs(request, "GET") && strcmp(request.path, "/") == 0) {
     handleRoot(client);
     return;
@@ -723,7 +732,7 @@ void routeRequest(WiFiClient &client, const HttpRequest &request) {
   routeAuthenticated(client, request);
 }
 
-void serveClient(WiFiClient &client) {
+void serveClient(Client &client) {
   HttpRequest request{};
   const HttpReadStatus status = readHttpRequest(client, request);
 
