@@ -40,6 +40,24 @@ struct Command {
   SettingValue value;
 };
 
+// Something that happened, on its way out to whoever is listening.
+//
+// The mirror image of a Command and deliberately not the same thing. A command
+// is an instruction that must not be lost -- a refused one is a 503 and the
+// client retries. An event is a notification, and the newest one is the one
+// that matters: a client that missed an intermediate colour and got the final
+// one has lost nothing.
+struct Event {
+  enum class Kind : uint8_t {
+    kSettingChanged,  // appIndex, key
+    kAppSwitched,     // appIndex
+  };
+
+  Kind kind;
+  uint8_t appIndex;
+  char key[16];
+};
+
 namespace rtos {
 
 // Eight is what the plan sized this at and what the traffic justifies: the
@@ -62,6 +80,22 @@ bool commandTake(Command &out);
 // full -- half a settings update applied and a 503 returned would be worse
 // than not applying it at all.
 uint8_t commandFree();
+
+// Deeper than the command queue because events are cheap and bursty: applying
+// several settings at once produces one event each, and they leave in a batch.
+constexpr uint8_t kEventQueueDepth = 16;
+
+// Always succeeds. A full queue drops its OLDEST entry to make room, which is
+// the opposite of what commandPost does and is the right answer for a
+// notification: what a listener wants when it falls behind is the current
+// state, not the start of the backlog.
+//
+// Returns false if something had to be dropped, so a caller that cares can
+// count it -- /api/metrics does.
+bool eventPost(const Event &event);
+
+// Takes the oldest event. False when there is nothing waiting.
+bool eventTake(Event &out);
 
 // Mutual exclusion, for the state a queue cannot cover: things read by one
 // task while another writes them, where the reader needs a coherent view

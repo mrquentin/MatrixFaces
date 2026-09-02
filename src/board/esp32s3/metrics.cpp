@@ -40,6 +40,11 @@ constexpr uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
 Counters counters;
 
+// Owned by main.cpp and mirrored here so snapshot() can report them without
+// metrics needing to know what a setting or an event is.
+uint32_t persistWrites = 0;
+uint32_t eventsDropped = 0;
+
 uint32_t stackFree(TaskHandle_t task) {
   return task != nullptr ? uxTaskGetStackHighWaterMark(task) : 0;
 }
@@ -67,6 +72,10 @@ uint32_t cyclesToMicros(uint32_t elapsedCycles) { return elapsedCycles / cpuMhz;
 
 void markLoop() { counters.markLoop(); }
 
+void recordPersistWrites(uint32_t writes) { persistWrites = writes; }
+
+void recordEventsDropped(uint32_t dropped) { eventsDropped = dropped; }
+
 void recordRequest(uint32_t elapsedCycles) { counters.recordRequest(cyclesToMicros(elapsedCycles)); }
 
 void recordAuth(uint32_t elapsedCycles) { counters.recordAuth(cyclesToMicros(elapsedCycles)); }
@@ -76,6 +85,9 @@ void tick() { counters.tick(micros()); }
 Snapshot snapshot() {
   Snapshot out{};
   counters.fill(out);
+
+  out.persistWrites = persistWrites;
+  out.eventsDropped = eventsDropped;
 
   out.ramTotal = heap_caps_get_total_size(kInternalCaps);
   out.freeNow = heap_caps_get_free_size(kInternalCaps);

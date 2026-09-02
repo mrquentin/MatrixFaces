@@ -29,6 +29,11 @@ bool cycleCounter = false;
 
 Counters counters;
 
+// Owned by main.cpp and mirrored here so snapshot() can report them without
+// metrics needing to know what a setting or an event is.
+uint32_t persistWrites = 0;
+uint32_t eventsDropped = 0;
+
 char *heapTop() { return sbrk(0); }
 
 // Reading the stack pointer register is well defined, unlike doing pointer
@@ -67,6 +72,10 @@ uint32_t cyclesToMicros(uint32_t elapsedCycles) {
 
 void markLoop() { counters.markLoop(); }
 
+void recordPersistWrites(uint32_t writes) { persistWrites = writes; }
+
+void recordEventsDropped(uint32_t dropped) { eventsDropped = dropped; }
+
 void recordRequest(uint32_t elapsedCycles) { counters.recordRequest(cyclesToMicros(elapsedCycles)); }
 
 void recordAuth(uint32_t elapsedCycles) { counters.recordAuth(cyclesToMicros(elapsedCycles)); }
@@ -76,6 +85,9 @@ void tick() { counters.tick(micros()); }
 Snapshot snapshot() {
   Snapshot out{};
   counters.fill(out);
+
+  out.persistWrites = persistWrites;
+  out.eventsDropped = eventsDropped;
 
   char *heap = heapTop();
 
