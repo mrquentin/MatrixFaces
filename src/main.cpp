@@ -6,6 +6,7 @@
 #include "api/api_context.h"
 #include "api/handlers.h"
 #include "api/http_request.h"
+#include "apps/app_settings_store.h"
 // Unqualified on purpose: -Isrc/board/<target> decides whose pin table this
 // is, which is the rule that keeps the board out of the composition root.
 #include "board_pins.h"
@@ -13,6 +14,7 @@
 #include "board/button.h"
 #include "board/metrics.h"
 #include "board/net_link.h"
+#include "board/rtos.h"
 #include "board/secure_random.h"
 #include "variants/registry.h"
 
@@ -47,17 +49,21 @@ AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
 
+// Set when a command changed a setting, cleared once it has been written back.
+// The handler used to persist inline; it cannot any more, because at that
+// point the new value is still in the queue. Phase 5.2 replaces this with a
+// debounce so a burst of changes costs one write instead of several.
+bool settingsDirty = false;
+
 // The API layer's whole view of the firmware. Assembled once here; handlers
 // reach for nothing else.
 // Which apps exist is the variant's decision; it also tells us whether there
 // is a MultiViewer poll to report on.
 AppRegistry appRegistry{appScheduler, clockSource, nullptr};
 
-ApiContext apiContext{credentials,     authenticator,
-                      pairing,         clockSource,
-                      appScheduler,    appSettingsStore,
-                      desiredLedState, FIRMWARE_VERSION,
-                      nullptr};
+ApiContext apiContext{credentials,  authenticator,   pairing,
+                      clockSource,  appScheduler,    desiredLedState,
+                      FIRMWARE_VERSION, nullptr};
 
 // Blinks the LED forever after printing a fatal boot error; never returns.
 [[noreturn]] void haltBlinking(const __FlashStringHelper *message) {
@@ -96,6 +102,47 @@ void serveClient(Client &client) {
   // The secret material in a pairing response lives in `request` only for the
   // request body, but zeroing keeps stale Authorization headers out of RAM.
   memset(&request, 0, sizeof(request));
+}
+
+// Applies everything waiting in the command queue.
+//
+// This is the only place app state is written. Handlers validate and post;
+// this drains and applies. While there is one task that distinction is
+// invisible, which is exactly why it is worth establishing now -- phase 4.2
+// puts the poster and this drain on different cores, and by then the rule has
+// to already be true rather than newly imposed. See docs/concurrency.md.
+void drainCommands() {
+  Command command{};
+  while (rtos::commandTake(command)) {
+    switch (command.kind) {
+      case Command::Kind::kSwitchApp:
+        appScheduler.switchTo(command.appIndex);
+        Serial.print(F("[apps] switched to "));
+        Serial.println(appScheduler.activeName());
+        break;
+
+      case Command::Kind::kApplySetting:
+        // Validated by the poster against the same bag, so a refusal here
+        // means validate and apply disagree -- a bug worth hearing about
+        // rather than a bad request.
+        if (appScheduler.applySetting(command.appIndex, command.key, command.value)) {
+          settingsDirty = true;
+        } else {
+          Serial.print(F("[apps] setting rejected after validation: "));
+          Serial.println(command.key);
+        }
+        break;
+
+      case Command::Kind::kSetLed:
+        desiredLedState = command.on;
+        break;
+    }
+  }
+
+  if (settingsDirty) {
+    appSettingsStore.saveAll(appScheduler);
+    settingsDirty = false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +234,10 @@ void setup() {
 
 void loop() {
   metrics::markLoop();
+
+  // First, so a mutation posted by the request served at the end of the
+  // previous pass is in effect before anything reads app state this pass.
+  drainCommands();
 
   buttonUp.poll();
   buttonDown.poll();

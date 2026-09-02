@@ -11,6 +11,7 @@
 #include "board_caps.h"
 
 #include "board/metrics.h"
+#include "board/rtos.h"
 #include "board/net_link.h"
 #include "board/secure_random.h"
 #include "hex.h"
@@ -57,16 +58,33 @@ const char *settingTypeName(SettingType type) {
   return "unknown";
 }
 
-void sendActiveApp(Client &client, ApiContext &ctx) {
+// `index` is what the reply reports, which is not always what is active yet:
+// a switch is queued and lands on the next drain, so the honest answer to
+// "which app did you accept" is the one that was asked for. Callers that mean
+// "which is running" pass scheduler.activeIndex().
+void sendActiveApp(Client &client, ApiContext &ctx, uint8_t index) {
   JsonDocument doc;
-  doc["index"] = ctx.scheduler.activeIndex();
-  doc["name"] = ctx.scheduler.activeName();
+  doc["index"] = index;
+  doc["name"] = ctx.scheduler.name(index);
   sendJson(client, 200, "OK", doc);
 }
 
+// A value a request was accepted with but which has not been applied yet.
+struct AcceptedSetting {
+  const char *key;
+  SettingValue value;
+};
+
 // Values only, keyed by descriptor -- the schema itself lives in
 // handleListApps. An entry getSetting() refuses is simply omitted.
-void sendAppSettings(Client &client, ApiContext &ctx, uint8_t appIndex) {
+//
+// `accepted` is what a POST just validated and queued. Those are reported in
+// preference to what the app currently holds, because the two now differ for
+// up to one loop: applies go through the command queue and land on the next
+// drain. Reporting the live value would tell the client its request had not
+// taken effect, which is both alarming and wrong.
+void sendAppSettings(Client &client, ApiContext &ctx, uint8_t appIndex,
+                     const AcceptedSetting *accepted = nullptr, uint8_t acceptedCount = 0) {
   JsonDocument doc;
   JsonObject root = doc.to<JsonObject>();
 
@@ -74,7 +92,20 @@ void sendAppSettings(Client &client, ApiContext &ctx, uint8_t appIndex) {
   for (uint8_t i = 0; i < settingCount; ++i) {
     const SettingDescriptor &descriptor = ctx.scheduler.settingDescriptor(appIndex, i);
     SettingValue value{};
-    if (!ctx.scheduler.getSetting(appIndex, descriptor.key, value)) continue;
+
+    const AcceptedSetting *pending = nullptr;
+    for (uint8_t a = 0; a < acceptedCount; ++a) {
+      if (strcmp(accepted[a].key, descriptor.key) == 0) {
+        pending = &accepted[a];
+        break;
+      }
+    }
+
+    if (pending != nullptr) {
+      value = pending->value;
+    } else if (!ctx.scheduler.getSetting(appIndex, descriptor.key, value)) {
+      continue;
+    }
 
     switch (descriptor.type) {
       case SettingType::kBool:
@@ -194,10 +225,16 @@ void handleSetLed(Client &client, const HttpRequest &request, const char *, ApiC
     return;
   }
 
-  ctx.desiredLedState = body["on"].as<bool>();
+  Command command{};
+  command.kind = Command::Kind::kSetLed;
+  command.on = body["on"].as<bool>();
+  if (!rtos::commandPost(command)) {
+    sendErrorResponse(client, 503, "Service Unavailable", "busy");
+    return;
+  }
 
   JsonDocument doc;
-  doc["led"] = ctx.desiredLedState;
+  doc["led"] = command.on;
   sendJson(client, 200, "OK", doc);
 }
 
@@ -257,7 +294,7 @@ void handleListApps(Client &client, const HttpRequest &, const char *, ApiContex
 }
 
 void handleGetActiveApp(Client &client, const HttpRequest &, const char *, ApiContext &ctx) {
-  sendActiveApp(client, ctx);
+  sendActiveApp(client, ctx, ctx.scheduler.activeIndex());
 }
 
 void handleSetActiveApp(Client &client, const HttpRequest &request, const char *, ApiContext &ctx) {
@@ -273,10 +310,15 @@ void handleSetActiveApp(Client &client, const HttpRequest &request, const char *
     return;
   }
 
-  ctx.scheduler.switchTo(static_cast<uint8_t>(index));
-  Serial.print(F("[apps] switched to "));
-  Serial.println(ctx.scheduler.activeName());
-  sendActiveApp(client, ctx);
+  Command command{};
+  command.kind = Command::Kind::kSwitchApp;
+  command.appIndex = static_cast<uint8_t>(index);
+  if (!rtos::commandPost(command)) {
+    sendErrorResponse(client, 503, "Service Unavailable", "busy");
+    return;
+  }
+
+  sendActiveApp(client, ctx, command.appIndex);
 }
 
 // Resolves the wildcard to a registered app, or writes the error response and
@@ -377,25 +419,49 @@ void handleSetAppSettings(Client &client, const HttpRequest &request, const char
     return;
   }
 
-  // Pass 2: apply. Everything here already validated above.
+  // Pass 2: queue. Everything here was validated above, and the room for all
+  // of it is checked before any of it is posted -- half an update applied and
+  // a 503 returned would be worse than refusing the lot.
+  // Bounded by the queue rather than by a constant of its own: one command per
+  // setting, so a request naming more than the queue can hold could never be
+  // served whole however large this array was.
+  AcceptedSetting accepted[rtos::kCommandQueueDepth];
+  uint8_t acceptedCount = 0;
+  bool tooManyToQueue = false;
+
   for (uint8_t i = 0; i < settingCount; ++i) {
     const SettingDescriptor &descriptor = ctx.scheduler.settingDescriptor(appIndex, i);
     JsonVariantConst raw = body[descriptor.key];
     if (raw.isNull()) continue;
 
-    SettingValue value{};
-    readSettingValue(raw, descriptor, value);
-    if (!ctx.scheduler.applySetting(appIndex, descriptor.key, value)) {
-      // Pass 1 validated every one of these against the same bag, so reaching
-      // here means validate and apply disagree -- a bug, not bad input.
-      sendErrorResponse(client, 500, "Internal Server Error",
-                        "setting_rejected_after_validation");
-      return;
+    if (acceptedCount >= rtos::kCommandQueueDepth) {
+      tooManyToQueue = true;
+      break;
     }
+    accepted[acceptedCount].key = descriptor.key;
+    readSettingValue(raw, descriptor, accepted[acceptedCount].value);
+    ++acceptedCount;
   }
 
-  ctx.settingsStore.saveAll(ctx.scheduler);
-  sendAppSettings(client, ctx, appIndex);
+  if (tooManyToQueue || rtos::commandFree() < acceptedCount) {
+    sendErrorResponse(client, 503, "Service Unavailable", "busy");
+    return;
+  }
+
+  for (uint8_t i = 0; i < acceptedCount; ++i) {
+    Command command{};
+    command.kind = Command::Kind::kApplySetting;
+    command.appIndex = appIndex;
+    strncpy(command.key, accepted[i].key, sizeof(command.key) - 1);
+    command.value = accepted[i].value;
+    // Space was reserved above, so this cannot fail.
+    rtos::commandPost(command);
+  }
+
+  // Persistence is no longer this handler's job: saveAll() here would write
+  // the values these commands are about to replace. main.cpp saves after the
+  // drain instead. Phase 5.2 makes that debounced rather than immediate.
+  sendAppSettings(client, ctx, appIndex, accepted, acceptedCount);
 }
 
 void handleRevokeClient(Client &client, const HttpRequest &, const char *wildcard,
