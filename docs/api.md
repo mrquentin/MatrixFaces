@@ -4,7 +4,7 @@
 | -------- | --------------------------- | ---- | -------------------------------- |
 | `GET`    | `/`                         | no   | device info, pairing window state |
 | `POST`   | `/pair`                     | window | issue credentials              |
-| `GET`    | `/api/status`               | yes  | uptime, LED, RSSI, clock          |
+| `GET`    | `/api/status`               | yes  | board, uptime, LED, RSSI, clock   |
 | `POST`   | `/api/led`                  | yes  | `{"on": true}`                    |
 | `GET`    | `/api/clients`               | yes  | list paired client ids            |
 | `DELETE` | `/api/clients/<id>`          | yes  | revoke a client                   |
@@ -18,6 +18,18 @@
 See [Security model](security.md) for how `yes`/`window`-gated requests are
 authenticated, [Client](client.md) for a ready-made client, and
 [Metrics](metrics.md) for what `/api/metrics` reports.
+
+## Two boards, one API
+
+The same firmware runs on the Matrix Portal M4 and the MatrixPortal S3, and
+answers identically apart from what the hardware makes possible.
+`GET /api/status` says which one you reached (`"board":"matrixportal-m4"` or
+`"matrixportal-s3"`), `/api/metrics` gains a `psram` section on the board that
+has any, and the clock app offers a `tz` setting only where the board can act
+on a POSIX timezone string — the M4 resolves its offset by geolocation instead.
+
+A client should read the settings schema rather than assume it, which is what
+the schema is for.
 
 ## App settings
 

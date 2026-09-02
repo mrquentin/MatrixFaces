@@ -30,7 +30,8 @@ jobs:
         run: pio test -e native
 
   # Every board environment, every push, so one board's change cannot silently
-  # break another's. The S3 joins this matrix in phase 3.
+  # break another's -- which is the whole point of a shared source tree, and
+  # not something a developer with one board on the desk can check.
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -39,6 +40,8 @@ jobs:
         environment:
           - m4
           - m4_release
+          - s3
+          - s3_release
     steps:
       - uses: actions/checkout@v4
 

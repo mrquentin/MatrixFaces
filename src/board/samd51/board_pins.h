@@ -35,4 +35,10 @@ constexpr uint8_t kMatrixOe = 16;
 constexpr uint16_t kMatrixWidth = 128;
 constexpr uint8_t kMatrixAddrPins = 5;
 
+// Bitplanes per colour channel. Four is what this board has always run and
+// what its timer-driven refresh comfortably sustains; the S3, which has to
+// estimate its scanline timing rather than being interrupted at the end of
+// one, carries one fewer. See that board's copy of this header.
+constexpr uint8_t kMatrixBitDepth = 4;
+
 }  // namespace board_pins

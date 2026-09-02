@@ -2,9 +2,12 @@
 
 ## Why not HTTPS
 
-The board's network stack lives entirely on the ESP32 co-processor behind SPI.
-WiFiNINA exposes `WiFiSSLClient` (TLS *out*) but there is no `WiFiSSLServer`,
-and the SAMD51 never sees a raw socket, so it cannot terminate TLS itself.
+On the M4 it is not available: the network stack lives entirely on the ESP32
+co-processor behind SPI, WiFiNINA exposes `WiFiSSLClient` (TLS *out*) but there
+is no `WiFiSSLServer`, and the SAMD51 never sees a raw socket. The S3 could
+terminate TLS — it owns its sockets — but it does not, deliberately: one
+authentication model across both boards is worth more here than a certificate a
+LAN device has no good way to obtain or rotate.
 
 Instead, every API request is signed. The shared secret never crosses the wire
 after pairing — only a signature over the request does — so a passive listener
@@ -16,18 +19,23 @@ consumed by the first successful pair. If that residual risk matters, the fix is
 an ECDH handshake at pairing so the secret is never transmitted; put the board
 behind a TLS-terminating reverse proxy if you need real HTTPS for clients.
 
-## Outbound timezone lookup
+## Outbound timezone lookup (M4 only)
 
-`ClockApp` shows local time, but the board has no timezone database, so
-`TimezoneOffset` resolves the UTC offset from a plain HTTP GET to
-`ip-api.com`, keyed off the board's public IP as seen by that service (not
+`ClockApp` shows local time, but the M4 has no timezone database, so
+`src/board/samd51/local_time.cpp` resolves the UTC offset from a plain HTTP GET
+to `ip-api.com`, keyed off the board's public IP as seen by that service (not
 sent explicitly — the service reads it from the connection). This means the
 board's public IP and approximate location are disclosed to a third party,
 roughly every 12 hours, over an unauthenticated plaintext connection. If that
-is unacceptable, the fix is to drop `TimezoneOffset` and let `ClockApp` render
-UTC — it already does exactly that whenever the lookup hasn't resolved yet.
-`TimeSource` itself is never affected: it stays pure UTC, which the signing
-scheme above depends on.
+is unacceptable, the fix is to stop calling it and let `ClockApp` render UTC —
+it already does exactly that whenever the lookup hasn't resolved yet.
+
+The S3 makes no such request. It gets UTC from SNTP and its offset from a POSIX
+`TZ` string set through the clock app's `tz` setting, so the zone is stated
+rather than inferred and nothing about the board leaves the LAN.
+
+`TimeSource` itself is never affected on either board: it stays pure UTC, which
+the signing scheme above depends on.
 
 ## Pairing
 
@@ -38,9 +46,16 @@ scheme above depends on.
 
 Outside the window `/pair` returns `401 {"error":"pairing_closed"}`.
 
-Credentials are written to the SAMD51's emulated EEPROM, so they survive a
-reboot. Up to 4 clients can be paired. **Hold DOWN for 5 seconds** to revoke all
-of them.
+Credentials survive a reboot: a reserved flash block on the M4, an NVS
+namespace on the S3. Up to 4 clients can be paired. **Hold DOWN for 5 seconds**
+to revoke all of them.
+
+They are stored in the clear on both boards. NVS can encrypt its contents, but
+the key would live in the same flash an attacker holding the board already has,
+and turning it on complicates recovery and OTA without changing the threat
+model — which was, and remains, that physical possession of the board means
+possession of its credentials. Revoking a lost board's clients is the answer,
+not encryption at rest.
 
 ## Signing a request
 

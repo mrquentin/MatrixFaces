@@ -22,7 +22,11 @@ struct AppRegistry {
 
   // Dependencies the composition root owns, offered to whichever apps want
   // them. A variant is free to ignore any of these.
-  const TimeSource &clock;
+  //
+  // Not const: the clock is read for display but also *configured* -- the
+  // zone a board with a POSIX TZ needs is a user-visible setting, and the app
+  // that owns that setting is the one that has to pass it on.
+  TimeSource &clock;
 
   // Filled in by a variant that polls MultiViewer, so /api/metrics can report
   // the poll's health. Left null by variants that do not, and the metrics

@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 
-#include <algorithm>
+#include "board/metrics_counters.h"
 
 extern "C" {
 // Provided by the linker script: the top of RAM, and the first address above
@@ -22,26 +22,12 @@ namespace {
 constexpr uint8_t kPaintByte = 0xc5;
 // Leaves room for begin()'s own stack frame so painting cannot clobber it.
 constexpr size_t kPaintSafetyMargin = 256;
-constexpr uint32_t kWindowMicros = 1000000;
 constexpr uint32_t kRamBase = 0x20000000;
 
 uint8_t *paintFloor = nullptr;
 bool cycleCounter = false;
 
-uint32_t loopCount = 0;
-uint32_t windowStartMicros = 0;
-uint32_t busyMicros = 0;
-
-uint32_t loopHz = 0;
-uint32_t busyPermille = 0;
-
-uint32_t requestCount = 0;
-uint32_t requestTotalMicros = 0;
-uint32_t requestMaxMicros = 0;
-
-uint32_t authCount = 0;
-uint32_t authTotalMicros = 0;
-uint32_t authMaxMicros = 0;
+Counters counters;
 
 char *heapTop() { return sbrk(0); }
 
@@ -68,7 +54,7 @@ void begin() {
     *from++ = kPaintByte;
   }
 
-  windowStartMicros = micros();
+  counters.begin(micros());
 }
 
 bool cycleCounterAvailable() { return cycleCounter; }
@@ -79,46 +65,17 @@ uint32_t cyclesToMicros(uint32_t elapsedCycles) {
   return elapsedCycles / (F_CPU / 1000000UL);
 }
 
-void markLoop() { ++loopCount; }
+void markLoop() { counters.markLoop(); }
 
-void recordRequest(uint32_t elapsedCycles) {
-  const uint32_t elapsedMicros = cyclesToMicros(elapsedCycles);
-  ++requestCount;
-  requestTotalMicros += elapsedMicros;
-  busyMicros += elapsedMicros;
-  requestMaxMicros = std::max(requestMaxMicros, elapsedMicros);
-}
+void recordRequest(uint32_t elapsedCycles) { counters.recordRequest(cyclesToMicros(elapsedCycles)); }
 
-void recordAuth(uint32_t elapsedCycles) {
-  const uint32_t elapsedMicros = cyclesToMicros(elapsedCycles);
-  ++authCount;
-  authTotalMicros += elapsedMicros;
-  authMaxMicros = std::max(authMaxMicros, elapsedMicros);
-}
+void recordAuth(uint32_t elapsedCycles) { counters.recordAuth(cyclesToMicros(elapsedCycles)); }
 
-void tick() {
-  const uint32_t now = micros();
-  const uint32_t elapsed = now - windowStartMicros;  // wrap-safe
-  if (elapsed < kWindowMicros) return;
-
-  loopHz = static_cast<uint32_t>(static_cast<uint64_t>(loopCount) * 1000000ULL / elapsed);
-  busyPermille = static_cast<uint32_t>(static_cast<uint64_t>(busyMicros) * 1000ULL / elapsed);
-
-  loopCount = 0;
-  busyMicros = 0;
-  windowStartMicros = now;
-}
+void tick() { counters.tick(micros()); }
 
 Snapshot snapshot() {
   Snapshot out{};
-
-  out.loopHz = loopHz;
-  out.busyPermille = busyPermille;
-  out.requests = requestCount;
-  out.requestAvgMicros = requestCount != 0 ? requestTotalMicros / requestCount : 0;
-  out.requestMaxMicros = requestMaxMicros;
-  out.authAvgMicros = authCount != 0 ? authTotalMicros / authCount : 0;
-  out.authMaxMicros = authMaxMicros;
+  counters.fill(out);
 
   char *heap = heapTop();
 

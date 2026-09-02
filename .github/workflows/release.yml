@@ -35,18 +35,20 @@ jobs:
       - name: Stub secrets.h
         run: cp include/secrets.h.example include/secrets.h
 
-      - name: Build m4 firmware
-        run: pio run -e m4
+      - name: Build firmware
+        run: pio run -e m4 -e m4_release -e s3 -e s3_release
 
-      - name: Build m4_release firmware
-        run: pio run -e m4_release
-
-      # Named by board from here on: the S3 joins this list in phase 3.
+      # Named by board. The S3 images are the application partition only, which
+      # is what phase 6.3's OTA route will take; a first flash of a blank board
+      # also needs the bootloader and partition table and is done with
+      # `pio run -e s3 -t upload`.
       - name: Stage firmware artifacts
         run: |
           mkdir -p dist
           cp .pio/build/m4/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-m4.bin"
           cp .pio/build/m4_release/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-m4-release.bin"
+          cp .pio/build/s3/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-s3.bin"
+          cp .pio/build/s3_release/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-s3-release.bin"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

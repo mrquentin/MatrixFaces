@@ -7,6 +7,9 @@
 
 #include "api/json_util.h"
 #include "api/router.h"
+// Unqualified: -Isrc/board/<target> decides whose capabilities these are.
+#include "board_caps.h"
+
 #include "board/metrics.h"
 #include "board/net_link.h"
 #include "board/secure_random.h"
@@ -173,6 +176,9 @@ void handlePair(Client &client, const HttpRequest &, const char *, ApiContext &c
 
 void handleStatus(Client &client, const HttpRequest &, const char *, ApiContext &ctx) {
   JsonDocument doc;
+  // Which board answered. Two of them run this firmware and a client that has
+  // just paired over the network has no other way to tell them apart.
+  doc["board"] = board_caps::kBoardName;
   doc["uptime_s"] = millis() / 1000;
   doc["led"] = ctx.desiredLedState;
   doc["rssi"] = net_link::rssiDbm();
@@ -436,6 +442,14 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
   ram["stack_peak"] = m.stackPeak;
   ram["free_now"] = m.freeNow;
   ram["min_free_ever"] = m.minFreeEver;
+
+  // Omitted rather than reported as zero on a board with no external RAM, so
+  // "no psram section" and "psram exhausted" cannot be confused.
+  if (m.psramTotal != 0) {
+    JsonObject psram = doc["psram"].to<JsonObject>();
+    psram["total"] = m.psramTotal;
+    psram["free"] = m.psramFree;
+  }
 
   // Poll health. `parsed` climbing while the display sits on stale data is the
   // signal that the feed's shape changed under us; `malformed` or `truncated`

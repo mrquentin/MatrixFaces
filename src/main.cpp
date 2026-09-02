@@ -6,10 +6,13 @@
 #include "api/api_context.h"
 #include "api/handlers.h"
 #include "api/http_request.h"
+// Unqualified on purpose: -Isrc/board/<target> decides whose pin table this
+// is, which is the rule that keeps the board out of the composition root.
+#include "board_pins.h"
+
 #include "board/button.h"
 #include "board/metrics.h"
 #include "board/net_link.h"
-#include "board/samd51/board_pins.h"
 #include "board/secure_random.h"
 #include "variants/registry.h"
 
@@ -29,14 +32,16 @@ PairingWindow pairing;
 Button buttonUp;
 Button buttonDown;
 
-// Bit depth 4, single chain, double-buffered: TextApp's scroll animation
-// redraws continuously, and every app already does a full fillScreen() each
-// frame, so there's no stale-buffer content to worry about. Pin tables and
-// geometry come from the board.
-Adafruit_Protomatter matrix(board_pins::kMatrixWidth, 4, 1, board_pins::kMatrixRgb,
-                            board_pins::kMatrixAddrPins, board_pins::kMatrixAddr,
-                            board_pins::kMatrixClock, board_pins::kMatrixLatch,
-                            board_pins::kMatrixOe, true);
+// Single chain, double-buffered: TextApp's scroll animation redraws
+// continuously, and every app already does a full fillScreen() each frame, so
+// there's no stale-buffer content to worry about. Pin tables, geometry and bit
+// depth all come from the board -- the last of those because how many
+// bitplanes a board can drive without visible artefacts is a property of its
+// refresh engine, not of the apps.
+Adafruit_Protomatter matrix(board_pins::kMatrixWidth, board_pins::kMatrixBitDepth, 1,
+                            board_pins::kMatrixRgb, board_pins::kMatrixAddrPins,
+                            board_pins::kMatrixAddr, board_pins::kMatrixClock,
+                            board_pins::kMatrixLatch, board_pins::kMatrixOe, true);
 AppScheduler appScheduler(matrix);
 AppSettingsStore appSettingsStore;
 
@@ -146,7 +151,8 @@ void setup() {
   const unsigned long start = millis();
   while (!Serial && millis() - start < 5000) {}
 
-  // Paints unused RAM, so it must run before anything makes the stack deep.
+  // First, because on a board that measures its stack by painting the RAM
+  // above it, this has to happen before anything makes that stack deep.
   metrics::begin();
 
   secure_random::begin();

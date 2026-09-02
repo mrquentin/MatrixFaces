@@ -52,15 +52,23 @@ struct Snapshot {
   uint32_t authAvgMicros;
   uint32_t authMaxMicros;
 
-  // RAM, all in bytes
+  // RAM, all in bytes. What each figure is measured from differs by board --
+  // a painted region between heap and stack on the SAMD51, the allocator's own
+  // accounting on the ESP32-S3 -- but the question each answers is the same.
+  // docs/metrics.md spells out the difference.
   uint32_t ramTotal;
   uint32_t ramStatic;
   uint32_t heapUsed;
   uint32_t stackPeak;
   uint32_t freeNow;
-  // Smallest gap ever seen between the top of the heap and the deepest the
-  // stack has reached. This is the headroom number that matters.
+  // The least headroom ever seen: how close the program has come to running
+  // out of RAM, rather than how close it is right now. The number that matters.
   uint32_t minFreeEver;
+
+  // External PSRAM, on a board that has any. Left zero otherwise, and
+  // /api/metrics then omits the section rather than reporting an empty one.
+  uint32_t psramTotal;
+  uint32_t psramFree;
 };
 
 Snapshot snapshot();
