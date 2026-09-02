@@ -1,0 +1,29 @@
+# MatrixPortal S3 (8 MB flash) -- the final layout, chosen during bring-up.
+#
+# The board's stock table spends the second app slot on Adafruit's UF2
+# bootloader, which leaves no room for a real A/B update. This one gives both
+# OTA slots to firmware, so phase 6.3 can stream an image into the inactive
+# half and fall back to the other if it does not boot.
+#
+# Chosen once and fixed: repartitioning erases NVS, and NVS is where a paired
+# client's credentials live. Everything phases 5 and 6 need -- a filesystem for
+# the web UI, room for two 3 MB images, somewhere to put a crash dump -- is
+# reserved here, so that no later phase has to ask a working board to be wiped.
+#
+# The cost of dropping tinyuf2 is that a bad image is no longer recovered by
+# dragging a .uf2 onto a USB drive; it is recovered by holding BOOT while
+# tapping RESET, which puts the ROM download mode on the USB port and is
+# something the chip can always do. See docs/development.md.
+#
+# The filesystem partition is *labelled* spiffs while holding LittleFS: that
+# label is what Arduino's LittleFS.begin() and PlatformIO's `uploadfs` both
+# look for by default, and a truer name would only cost every caller an
+# argument.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x300000,
+app1,       app,  ota_1,    0x310000, 0x300000,
+spiffs,     data, spiffs,   0x610000, 0x1E0000,
+coredump,   data, coredump, 0x7F0000, 0x10000,

@@ -9,20 +9,20 @@
 // the board supports.
 namespace board_caps {
 
-inline constexpr char kBoardName[] = "matrixportal-m4";
+constexpr char kBoardName[] = "matrixportal-m4";
 
 // WiFiNINA gives the SAMD51 a small fixed pool of sockets shared between the
 // listening server and every outbound connection, which is not enough to also
 // hold WebSocket connections open. Phase 5.1 turns this on for the S3.
-inline constexpr bool kHasWebSocket = false;
+constexpr bool kHasWebSocket = false;
 
 // No filesystem: the M4 serves its one page from flash. The S3 gets LittleFS
 // and the on-device web UI in phase 5.3.
-inline constexpr bool kHasFilesystem = false;
+constexpr bool kHasFilesystem = false;
 
 // Local time comes from a geolocation lookup rather than a POSIX TZ string,
 // so TimeSource::setTz() is accepted and ignored here. See
 // samd51/local_time.cpp.
-inline constexpr bool kHasPosixTz = false;
+constexpr bool kHasPosixTz = false;
 
 }  // namespace board_caps
