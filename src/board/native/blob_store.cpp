@@ -1,5 +1,6 @@
 #include "board/blob_store.h"
 
+#include <cstdint>
 #include <cstring>
 #include <map>
 #include <string>
