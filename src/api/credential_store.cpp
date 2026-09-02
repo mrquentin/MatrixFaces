@@ -4,12 +4,21 @@
 
 #include <cstring>
 
+#include "board/blob_store.h"
 #include "hex.h"
+#include "storage/record_blob.h"
+
+namespace {
+
+constexpr size_t kBlobSize =
+    record_blob::framedSize(sizeof(StoredClient), CredentialStore::kMaxClients);
+
+}  // namespace
 
 void CredentialStore::begin() {
   // If the program ever grows into the storage block, an upload would start
   // overwriting credentials again. checkPlacement() logs specifics.
-  store_.checkPlacement();
+  blob_store::checkPlacement(blob_store::kCredentials);
   load();
 }
 
@@ -17,16 +26,35 @@ void CredentialStore::load() {
   count_ = 0;
   memset(clients_, 0, sizeof(clients_));
 
-  uint16_t count = 0;
-  if (!store_.load(clients_, count)) return;
-  count_ = static_cast<uint8_t>(count);
+  uint8_t blob[kBlobSize];
+  size_t length = 0;
+  if (!blob_store::load(blob_store::kCredentials, blob, sizeof(blob), length)) return;
 
+  uint16_t count = 0;
+  const record_blob::ParseResult result = record_blob::parse(
+      blob, length, kMagic, kVersion, clients_, sizeof(StoredClient), kMaxClients, count);
+
+  if (result != record_blob::ParseResult::kOk) {
+    Serial.print(F("[creds] "));
+    Serial.println(record_blob::describe(result));
+    return;
+  }
+
+  count_ = static_cast<uint8_t>(count);
   Serial.print(F("[creds] loaded "));
   Serial.print(count_);
   Serial.println(F(" client(s)"));
 }
 
-void CredentialStore::save() const { store_.save(clients_, count_); }
+void CredentialStore::save() const {
+  uint8_t blob[kBlobSize];
+  if (!record_blob::serialize(blob, sizeof(blob), kMagic, kVersion, clients_,
+                              sizeof(StoredClient), kMaxClients, count_)) {
+    Serial.println(F("[creds] failed to serialise; not saving"));
+    return;
+  }
+  blob_store::save(blob_store::kCredentials, blob, sizeof(blob));
+}
 
 const StoredClient *CredentialStore::find(const uint8_t id[apiauth::kClientIdBytes]) const {
   for (uint8_t i = 0; i < count_; ++i) {

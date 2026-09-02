@@ -4,6 +4,9 @@
 
 #include <cstring>
 
+#include "board/blob_store.h"
+#include "storage/record_blob.h"
+
 namespace {
 
 void copyCapped(char *dest, size_t cap, const char *src) {
@@ -16,14 +19,26 @@ void copyCapped(char *dest, size_t cap, const char *src) {
 void AppSettingsStore::begin(AppScheduler &scheduler) {
   // If the program ever grows into the storage block, an upload would start
   // overwriting settings again. checkPlacement() logs specifics.
-  store_.checkPlacement();
+  blob_store::checkPlacement(blob_store::kAppSettings);
   load(scheduler);
 }
 
 void AppSettingsStore::load(AppScheduler &scheduler) {
   SettingRecord records[kMaxRecords];
+  constexpr size_t kBlobSize =
+      record_blob::framedSize(sizeof(SettingRecord), kMaxRecords);
+  uint8_t blob[kBlobSize];
+  size_t length = 0;
+  if (!blob_store::load(blob_store::kAppSettings, blob, sizeof(blob), length)) return;
+
   uint16_t count = 0;
-  if (!store_.load(records, count)) return;
+  const record_blob::ParseResult result = record_blob::parse(
+      blob, length, kMagic, kVersion, records, sizeof(SettingRecord), kMaxRecords, count);
+  if (result != record_blob::ParseResult::kOk) {
+    Serial.print(F("[settings] "));
+    Serial.println(record_blob::describe(result));
+    return;
+  }
 
   uint16_t applied = 0;
   for (uint16_t i = 0; i < count; ++i) {
@@ -62,5 +77,13 @@ void AppSettingsStore::saveAll(const AppScheduler &scheduler) {
     }
   }
 
-  store_.save(records, count);
+  constexpr size_t kBlobSize =
+      record_blob::framedSize(sizeof(SettingRecord), kMaxRecords);
+  uint8_t blob[kBlobSize];
+  if (!record_blob::serialize(blob, sizeof(blob), kMagic, kVersion, records,
+                              sizeof(SettingRecord), kMaxRecords, count)) {
+    Serial.println(F("[settings] failed to serialise; not saving"));
+    return;
+  }
+  blob_store::save(blob_store::kAppSettings, blob, sizeof(blob));
 }

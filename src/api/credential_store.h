@@ -4,8 +4,6 @@
 #include <cstdint>
 
 #include "auth_header.h"
-#include "board/flash_block.h"
-#include "board/flash_record_store.h"
 
 // One paired client. The secret is stored in the clear because HMAC needs the
 // original key material to recompute a signature.
@@ -15,9 +13,15 @@ struct StoredClient {
   uint32_t pairedAt;
 };
 
-// Persists paired clients in the SAMD51's emulated EEPROM so they survive a
-// reboot. Writes only happen on pair, revoke and reset, so flash wear is a
-// non-issue at any realistic pairing rate.
+// This record goes to storage byte for byte, and a board taking a firmware
+// update has to find its existing pairings intact. Changing the layout means
+// bumping kVersion and writing a migration, not just editing the struct.
+static_assert(sizeof(StoredClient) == 44, "on-storage credential layout is fixed");
+static_assert(alignof(StoredClient) == 4, "record_blob assumes 4-byte alignment");
+
+// Persists paired clients so they survive a reboot. Writes only happen on
+// pair, revoke and reset, so flash wear is a non-issue at any realistic
+// pairing rate.
 class CredentialStore {
  public:
   static constexpr uint8_t kMaxClients = 4;
@@ -40,10 +44,9 @@ class CredentialStore {
   static constexpr uint16_t kVersion = 1;
 
   void load();
-  // Serialises the in-memory clients to flash; the object itself is unchanged.
+  // Serialises the in-memory clients to storage; the object itself is unchanged.
   void save() const;
 
-  FlashRecordStore<StoredClient, kMaxClients> store_{flash_block::kCredentialsAddress, kMagic, kVersion, "creds"};
   StoredClient clients_[kMaxClients];
   uint8_t count_ = 0;
 };
