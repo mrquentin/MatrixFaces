@@ -1,2 +1,6 @@
 CompileFlags:
-  Compiler: C:/Users/quent/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++.exe
+  # Resolved from PATH, not a hard-coded install location, so this file works on
+  # any machine. Put the PlatformIO ARM toolchain's bin directory on your PATH
+  # (see docs/development.md) so clangd queries the cross compiler for its
+  # system include paths instead of falling back to the host's.
+  Compiler: arm-none-eabi-g++

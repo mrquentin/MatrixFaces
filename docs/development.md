@@ -18,6 +18,31 @@ Copy `include/secrets.h.example` to `include/secrets.h` and fill in
 CI (`.github/workflows/ci.yml`) runs the native tests plus a compile-only check
 of both board environments on every push — it never touches real hardware.
 
+## Editor setup (clangd)
+
+`compile_commands.json` is machine-local and gitignored; regenerate it whenever
+include paths change, scoped to the board env:
+
+    pio run -e adafruit_matrix_portal_m4 -t compiledb
+
+Always pass `-e`. A bare `pio run -t compiledb` walks every environment in
+declaration order and *overwrites* the file each pass instead of merging, so
+`env:native`'s bare-host command lines end up clobbering the firmware include
+paths and clangd loses every Arduino/WiFiNINA/Protomatter header.
+
+`.clangd` points at `arm-none-eabi-g++` by name so clangd queries the cross
+toolchain (not the host) for system headers like `<cstdint>`. Put the
+PlatformIO toolchain on your PATH so that name resolves:
+
+    ~/.platformio/packages/toolchain-gccarmnoneeabi/bin
+
+## Dependency pinning
+
+`lib_deps` pins exact versions: the Adafruit WiFiNINA fork publishes no
+releases, so it is pinned to a commit hash — without it a fresh `.pio` silently
+picks up whatever GitHub HEAD is that day. Bumping a dependency is a deliberate
+edit to `platformio.ini`, verified by a board build.
+
 ## Versioning
 
 Each build bakes `git describe --tags --always --dirty` into `FIRMWARE_VERSION`,

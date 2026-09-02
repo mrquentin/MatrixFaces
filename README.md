@@ -6,14 +6,21 @@
 [![Last commit](https://img.shields.io/github/last-commit/mrquentin/MatrixFaces)](https://github.com/mrquentin/MatrixFaces/commits/master)
 [![PlatformIO](https://img.shields.io/badge/platformio-orange?logo=platformio&logoColor=white)](https://platformio.org)
 
+> **🚧 Migration in progress — Matrix Portal M4 → MatrixPortal S3.** This repo is
+> being reworked into a multi-board build where both targets ship from one tree,
+> picking up a FreeRTOS task split, WebSocket settings, MQTT/Home Assistant
+> discovery, OTA, mDNS, captive-portal WiFi provisioning and an on-device web UI
+> along the way. The M4 keeps working throughout. Expect churn in the layout,
+> the build environments and these docs until the migration lands; see
+> [docs/migration-context.md](docs/migration-context.md) for the background.
+
 A modular Adafruit Matrix Portal M4 display: swap between "apps" on one RGB
-LED matrix — weather, an F1 race-flag indicator, a clock, and whatever comes
-next.
+LED matrix — a clock, an F1 race-flag indicator, scrolling text, and whatever
+comes next.
 
 This repo ships a signed HTTP API on the Matrix Portal M4, with button-gated
 pairing and HMAC-SHA256 request signing, plus a swappable-app framework
-(`App`/`AppScheduler`) driving the RGB matrix. The clock app is the first
-renderer; weather and F1 are not built yet — see [Roadmap](#roadmap) below.
+(`App`/`AppScheduler`) driving the RGB matrix — see [Roadmap](#roadmap) below.
 
 ## Quick start
 
@@ -27,13 +34,12 @@ pairing window, then pair with `tools/m4client.py` — see [Client](docs/client.
 
 ## Roadmap
 
-The signed API above is the control plane; the display side is next.
-
 - [x] Matrix rendering framework — swappable "apps" driving the RGB panel
-- [x] Clock app
-- [ ] Weather app
-- [ ] F1 race-flag app
+- [x] Clock app, text app
+- [x] F1 race-flag app (polls a local MultiViewer GraphQL API)
 - [x] `/api/apps` and `/api/app` endpoints to list, query, and switch the active app
+- [ ] MatrixPortal S3 support (see the migration banner above)
+- [ ] Weather app
 
 ## Documentation
 
