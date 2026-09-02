@@ -20,6 +20,11 @@ constexpr bool kHasWebSocket = false;
 // mounts or serves from it until phase 5.3.
 constexpr bool kHasFilesystem = false;
 
+// lwIP owns the sockets, so an outbound connection can be held open between
+// uses without competing with the listening server for a shared pool. That is
+// what makes a keep-alive MultiViewer poll worth doing here and not on the M4.
+constexpr bool kHoldsOutboundConnections = true;
+
 // Local time comes from SNTP plus a POSIX TZ string, so TimeSource::setTz()
 // does something here and the clock app is worth offering a zone setting.
 // The M4 answers the same question with a geolocation lookup and ignores the

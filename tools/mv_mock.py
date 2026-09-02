@@ -59,6 +59,31 @@ def state(track_status=None, current_lap=None, total_laps=None, messages=None):
     return out
 
 
+TOPICS = ("TrackStatus", "LapCount", "DriverList", "RaceControlMessages")
+
+
+def topics_in(query):
+    """The fields a GraphQL query body asked for, in the order above."""
+    return [topic for topic in TOPICS if topic.encode() in query]
+
+
+def select_topics(scenario, query):
+    """Returns only the fields the query asked for.
+
+    A real server answers the question it was asked, and the firmware relies on
+    that: from phase 3.2 the S3 requests the cheap fields often and the
+    expensive ones rarely, which is only safe because the parser leaves state
+    it was not told about alone. Replying with everything regardless would hide
+    a regression in exactly that behaviour.
+    """
+    if scenario is None:
+        return None
+    asked = topics_in(query)
+    if not asked:
+        return scenario
+    return {topic: value for topic, value in scenario.items() if topic in asked}
+
+
 def flag_message(index, flag, racing_number, scope="Driver"):
     return {
         str(index): {
@@ -93,6 +118,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
     options = None  # set on the class before serving
     started = time.monotonic()
     requests = 0
+    connections = 0
+
+    def setup(self):
+        # One instance per accepted connection, so this counts connections
+        # rather than requests -- which is exactly what tells keep-alive apart
+        # from reconnect-every-poll in the log below.
+        super().setup()
+        Handler.connections += 1
+        self.connection_id = Handler.connections
+        self.on_connection = 0
 
     def current_scenario(self):
         if Handler.options.scenario:
@@ -116,16 +151,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = json.dumps({"data": {"f1LiveTimingState": SCENARIOS["laps"]}})
             raw = payload[: len(payload) // 2].encode()
         else:
-            raw = json.dumps({"data": {"f1LiveTimingState": SCENARIOS[name]}}).encode()
+            live = select_topics(SCENARIOS[name], body)
+            raw = json.dumps({"data": {"f1LiveTimingState": live}}).encode()
 
-        print("  #{:<4} {:<12} {:>6} bytes  (query {} bytes)".format(
-            Handler.requests, name, len(raw), len(body)))
+        self.on_connection += 1
+
+        print("  #{:<4} conn {}/#{:<3} {:<12} {:>6} bytes  [{}]".format(
+            Handler.requests, self.connection_id, self.on_connection,
+            name, len(raw), " ".join(topics_in(body)) or "?"))
         sys.stdout.flush()
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
-        self.send_header("Connection", "close")
+        # Honour what the client asked for. BaseHTTPRequestHandler already
+        # decided close_connection from the request's Connection header, so
+        # saying "close" unconditionally -- as this used to -- would make
+        # keep-alive impossible to test against.
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(raw)
 

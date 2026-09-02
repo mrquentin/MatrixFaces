@@ -458,6 +458,7 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
     const mv::Counters &c = *ctx.mvCounters;
     JsonObject multiViewer = doc["multiviewer"].to<JsonObject>();
     multiViewer["polls"] = c.polls;
+    multiViewer["connects"] = c.connects;
     multiViewer["connect_failures"] = c.connectFailures;
     multiViewer["empty_responses"] = c.emptyResponses;
     multiViewer["framing_errors"] = c.framingErrors;

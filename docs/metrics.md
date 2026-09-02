@@ -54,3 +54,40 @@ partial answer.
 
 `psram` is omitted rather than zeroed on a board with no external RAM, so
 "there is none" and "it is exhausted" cannot be confused.
+
+## The MultiViewer poll
+
+The `multiviewer` section exists because a feed that has quietly stopped
+parsing looks exactly like a quiet session. `parsed` climbing while the display
+sits on stale data says the shape of the feed changed under us; `malformed` or
+`truncated` climbing says the same thing more loudly.
+
+`connects` against `polls` is how the transport policy is read from outside:
+
+| Board | Expected | Why |
+|---|---|---|
+| M4 | `connects == polls` | WiFiNINA shares a small socket pool between the server and every outbound connection, so the poll gives its socket back each time |
+| S3 | `connects` ≈ 1 | lwIP owns its sockets, so the connection is held open across polls |
+
+On the S3 a climbing `connects` means the server is dropping the connection
+between polls, which is allowed and is handled — a reused socket that turns out
+to be dead is retried once on a fresh one — but it means the keep-alive saving
+is not being had.
+
+The S3 also splits the query: `TrackStatus` and `LapCount` every two seconds,
+`DriverList` and `RaceControlMessages` folded in every four — so every other
+poll is the cheap one. Against `tools/mv_mock.py` that is a 137-byte response
+instead of 633. The M4 asks for everything every time, as it always has.
+
+The split is safe because the parser leaves state it was not told about alone —
+`parseDriverList` and `parseRaceControlMessages` both return without touching
+anything when their field is absent — and `mv_mock.py` returns only the fields
+the query asked for, so a regression in that behaviour would show up in
+testing rather than during a race.
+
+Four seconds for the slow group is a deliberate middle. A blue flag arrives in
+`RaceControlMessages`, so that interval is the longest one can be late; track
+flags, shown in preference to it, stay on the two-second cadence. A longer slow
+interval saves more traffic and, until phase 4.2 moves polling off the render
+task, more of the stall that comes with it — but not enough to be worth a
+staler flag.
