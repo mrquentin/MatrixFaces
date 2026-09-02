@@ -8,18 +8,27 @@ namespace {
 // rollover, which a plain `millis() < deadline` would get wrong.
 bool reached(uint32_t deadlineMs) { return (int32_t)(millis() - deadlineMs) >= 0; }
 
+constexpr uint32_t kClosed = 0;
+
 }  // namespace
 
 void PairingWindow::open() {
-  armed_ = true;
-  deadlineMs_ = millis() + kWindowMs;
+  uint32_t deadline = millis() + kWindowMs;
+  // Zero is the closed marker, so the one millisecond every 49 days that would
+  // land on it borrows the next one instead.
+  if (deadline == kClosed) deadline = 1;
+  deadlineMs_.store(deadline, std::memory_order_relaxed);
 }
 
-void PairingWindow::close() { armed_ = false; }
+void PairingWindow::close() { deadlineMs_.store(kClosed, std::memory_order_relaxed); }
 
-bool PairingWindow::isOpen() const { return armed_ && !reached(deadlineMs_); }
+bool PairingWindow::isOpen() const {
+  const uint32_t deadline = deadlineMs_.load(std::memory_order_relaxed);
+  return deadline != kClosed && !reached(deadline);
+}
 
 uint32_t PairingWindow::remainingSeconds() const {
-  if (!isOpen()) return 0;
-  return (deadlineMs_ - millis() + 999) / 1000;
+  const uint32_t deadline = deadlineMs_.load(std::memory_order_relaxed);
+  if (deadline == kClosed || reached(deadline)) return 0;
+  return (deadline - millis() + 999) / 1000;
 }
