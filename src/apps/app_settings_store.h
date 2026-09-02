@@ -3,8 +3,6 @@
 #include <cstddef>
 
 #include "app_scheduler.h"
-#include "board/flash_block.h"
-#include "board/flash_record_store.h"
 
 // Persists every registered app's settings across a reboot, in a dedicated
 // erase block separate from CredentialStore's.
@@ -37,7 +35,9 @@ class AppSettingsStore {
     SettingValue value;
   };
 
-  void load(AppScheduler &scheduler);
+  // Same fixed on-storage layout requirement as StoredClient: existing
+  // settings have to survive a firmware update.
+  static_assert(sizeof(SettingValue) % 4 == 0, "record_blob assumes 4-byte records");
 
-  FlashRecordStore<SettingRecord, kMaxRecords> store_{flash_block::kAppSettingsAddress, kMagic, kVersion, "settings"};
+  void load(AppScheduler &scheduler);
 };
