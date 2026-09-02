@@ -51,6 +51,32 @@ Client *accept();
 // Flushes and closes whatever accept() last returned.
 void finishRequest();
 
+// --- connections held open across ticks -------------------------------------
+//
+// accept() lends its client until the next accept(), which is all an HTTP
+// request-response needs. A WebSocket outlives many of them, so it has to be
+// moved somewhere that persists -- and that somewhere is board-side, because
+// the concrete client type is.
+//
+// Zero slots on a board whose sockets are too scarce to hold any (see
+// board_caps::kHasWebSocket), and then retain() always refuses and the rest of
+// this is never reached.
+constexpr uint8_t kMaxRetained = 4;
+
+// Moves the client accept() last returned into a free slot and stops lending
+// it. Returns the slot, or -1 if there is no room -- which the caller must
+// treat as "refuse the upgrade", not as something to retry.
+//
+// After this, finishRequest() must NOT be called for that client: it now
+// belongs to the slot.
+int8_t retain();
+
+// The client in `slot`, or nullptr if the slot is empty or the peer has gone.
+Client *retained(uint8_t slot);
+
+// Closes and frees a slot. Safe on an already-empty one.
+void release(uint8_t slot);
+
 // --- outbound ---------------------------------------------------------------
 
 // A dedicated socket for the one long-lived outbound consumer (the MultiViewer

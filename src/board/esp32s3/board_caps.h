@@ -12,9 +12,10 @@ namespace board_caps {
 constexpr char kBoardName[] = "matrixportal-s3";
 
 // Native WiFi with a full lwIP socket pool, so holding a handful of
-// connections open costs nothing the HTTP server needs. Phase 5.1 is what
-// actually implements the protocol; this says the board could carry it.
-constexpr bool kHasWebSocket = false;
+// connections open costs nothing the HTTP server needs. net_link keeps
+// kMaxRetained of them; the M4's NINA shares a small fixed pool with the
+// listening server and cannot.
+constexpr bool kHasWebSocket = true;
 
 // A LittleFS partition is reserved (boards/partitions_8mb_ota.csv) but nothing
 // mounts or serves from it until phase 5.3.

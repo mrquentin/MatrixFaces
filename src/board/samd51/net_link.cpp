@@ -109,4 +109,17 @@ void finishRequest() {
 
 Client &outboundClient() { return g_outbound; }
 
+// --- retained connections ---------------------------------------------------
+//
+// None. WiFiNINA hands out a small fixed pool of sockets shared between the
+// listening server and every outbound connection, and holding one open for a
+// WebSocket is a socket the server may need to accept the next request. That
+// is why board_caps::kHasWebSocket is false here; refusing is the honest
+// answer rather than a table that would starve the thing it sits beside.
+int8_t retain() { return -1; }
+
+Client *retained(uint8_t) { return nullptr; }
+
+void release(uint8_t) {}
+
 }  // namespace net_link

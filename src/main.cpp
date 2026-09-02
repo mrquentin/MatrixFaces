@@ -7,6 +7,7 @@
 #include "api/api_context.h"
 #include "api/handlers.h"
 #include "api/http_request.h"
+#include "api/ws_hub.h"
 #include "apps/app_settings_store.h"
 // Unqualified on purpose: -Isrc/board/<target> decides whose pin table this
 // is, which is the rule that keeps the board out of the composition root.
@@ -75,9 +76,18 @@ bool settingsDirty = false;
 // is a MultiViewer poll to report on.
 AppRegistry appRegistry{appScheduler, clockSource, nullptr, nullptr};
 
+// Forwards an inbound WebSocket message to the same validation and the same
+// command queue the REST route uses. A free function because WsHub takes a
+// plain function pointer -- it has no business knowing what an ApiContext is.
+void onWsMessage(const char *json, size_t len, void *user) {
+  api::handleWsMessage(json, len, *static_cast<ApiContext *>(user));
+}
+
 ApiContext apiContext{credentials,  authenticator,   pairing,
                       clockSource,  appScheduler,    desiredLedState,
-                      FIRMWARE_VERSION, nullptr};
+                      FIRMWARE_VERSION, nullptr, nullptr};
+
+WsHub wsHub(onWsMessage, &apiContext);
 
 // Blinks the LED forever after printing a fatal boot error; never returns.
 [[noreturn]] void haltBlinking(const __FlashStringHelper *message) {
@@ -237,6 +247,10 @@ void netTick(uint32_t nowMs) {
     net_link::serveHttp(80);
   }
 
+  // Before accepting: an open socket that already has a message waiting
+  // should not sit behind a new connection's whole request-response.
+  wsHub.poll();
+
   Client *client = net_link::accept();
   if (client == nullptr) return;
 
@@ -311,6 +325,7 @@ void setup() {
   // clock app can render while the board is still negotiating a connection.
   registerApps(appRegistry);
   apiContext.mvCounters = appRegistry.mvCounters;
+  apiContext.wsHub = &wsHub;
   appSettingsStore.begin(appScheduler);
   const ProtomatterStatus matrixStatus = appScheduler.begin();
   if (matrixStatus != PROTOMATTER_OK) {
