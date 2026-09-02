@@ -42,6 +42,7 @@ jobs:
           - m4_release
           - s3
           - s3_release
+          - s3_diag
     steps:
       - uses: actions/checkout@v4
 
