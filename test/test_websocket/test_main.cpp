@@ -78,12 +78,28 @@ void test_incomplete_header_is_reported_not_guessed() {
 }
 
 void test_parses_a_16_bit_length() {
-  const uint8_t frame[] = {0x81, 0xFE, 0x01, 0x00};  // 256 bytes, unmasked
+  // 0x7E, not 0xFE: the top bit of that byte is the mask flag, and a masked
+  // frame needs four more bytes for the key before the header is complete.
+  const uint8_t frame[] = {0x81, 0x7E, 0x01, 0x00};  // 256 bytes, unmasked
   ws::FrameHeader header{};
   TEST_ASSERT_EQUAL(ws::ParseResult::kOk, ws::parseHeader(frame, sizeof(frame), header));
   TEST_ASSERT_EQUAL_UINT64(256, header.payloadLen);
   TEST_ASSERT_EQUAL_size_t(4, header.headerLen);
   TEST_ASSERT_FALSE(header.masked);
+}
+
+// The mistake the test above originally made, now pinned: with the mask bit
+// set, a 126-length header is not complete until its four key bytes arrive.
+void test_masked_16_bit_header_needs_its_key() {
+  const uint8_t frame[] = {0x81, 0xFE, 0x01, 0x00};
+  ws::FrameHeader header{};
+  TEST_ASSERT_EQUAL(ws::ParseResult::kIncomplete, ws::parseHeader(frame, sizeof(frame), header));
+
+  const uint8_t whole[] = {0x81, 0xFE, 0x01, 0x00, 0xAA, 0xBB, 0xCC, 0xDD};
+  TEST_ASSERT_EQUAL(ws::ParseResult::kOk, ws::parseHeader(whole, sizeof(whole), header));
+  TEST_ASSERT_TRUE(header.masked);
+  TEST_ASSERT_EQUAL_UINT64(256, header.payloadLen);
+  TEST_ASSERT_EQUAL_size_t(8, header.headerLen);
 }
 
 void test_parses_a_64_bit_length() {
@@ -217,6 +233,7 @@ int main() {
   RUN_TEST(test_unmasking_survives_a_split_payload);
   RUN_TEST(test_incomplete_header_is_reported_not_guessed);
   RUN_TEST(test_parses_a_16_bit_length);
+  RUN_TEST(test_masked_16_bit_header_needs_its_key);
   RUN_TEST(test_parses_a_64_bit_length);
   RUN_TEST(test_reserved_bits_are_rejected);
   RUN_TEST(test_oversized_control_frame_is_rejected);
