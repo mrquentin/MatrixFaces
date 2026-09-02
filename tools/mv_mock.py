@@ -15,10 +15,15 @@ Point the board at it:
     python tools/m4client.py --host <board> post /api/apps/2/settings \\
         '{"host": "<this machine>"}'
 
-`--delay` is the interesting one for later phases: it makes the poll block,
-which on the M4 stalls the render loop. That is expected today and is what the
-FreeRTOS task split in phase 4 exists to fix, so this is the rig that will
-demonstrate the difference.
+`--delay` is the interesting one: it makes the poll block, which on the M4
+stalls everything and on the S3 stalls nothing. That is the difference phase
+4.2 bought, and this is the rig that demonstrates it -- measured at 2063ms
+median HTTP latency on the M4 against 314ms on the S3, with `--delay 2`.
+
+Keep `--delay` BELOW the client's responseTimeoutMs (3s). At or above it the
+poll does not run slowly, it *times out*: framing_errors climb, the client
+marks itself disconnected and drops into its long backoff, and the board ends
+up mostly not polling at all -- which looks like "the delay had no effect".
 
 FIXTURE PROVENANCE: these payloads are synthesized from the community-
 documented shape of the F1 SignalR topics, not captured from a live session.

@@ -1,6 +1,9 @@
 #include "variants/registry.h"
 
 #include <Arduino.h>
+#include <IPAddress.h>
+
+#include <cstring>
 
 #include "apps/clock_app.h"
 #include "apps/f1_flags_app.h"
@@ -9,6 +12,7 @@
 #include "board/net_link.h"
 #include "board_caps.h"
 #include "net/multiviewer_client.h"
+#include "net/mv_link.h"
 
 // The apps this firmware ships. One file, so that what is on the device is a
 // property of the build rather than something scattered through main.cpp --
@@ -46,6 +50,41 @@ MvConfig multiViewerConfig() {
   return MvConfig{{2000, 2000, 30000, mv::kAllTopics, 0}, false, 3000};
 }
 
+// Set by registerApps(). Null in a build whose F1 app was not registered,
+// which is also when pollMultiViewer() has nothing to do.
+MultiViewerClient *g_multiViewer = nullptr;
+MvLink *g_link = nullptr;
+
+// The MultiViewer tick. Runs on its own task on the S3 and in turn with
+// everything else on the M4, and in both cases this is the only code that
+// touches the client -- which is what lets the client stay unguarded.
+void pollMultiViewer(uint32_t nowMs) {
+  if (g_multiViewer == nullptr || g_link == nullptr) return;
+
+  // Adopt a host the app asked for. Parsing happens here rather than in the
+  // app because the socket is here; an address that will not parse means "no
+  // host", the same as an empty one.
+  char requested[MvLink::kHostCap];
+  if (g_link->takeHostChange(requested, sizeof(requested))) {
+    IPAddress ip;
+    g_multiViewer->setHost(requested[0] != '\0' && ip.fromString(requested) ? ip : IPAddress());
+  }
+
+  if (!g_link->pollEnabled()) return;
+
+  g_multiViewer->poll(nowMs);
+
+  MvLink::Snapshot snapshot{};
+  snapshot.connected = g_multiViewer->connected();
+  snapshot.trackFlag = g_multiViewer->trackFlag();
+  snapshot.hasLapCount = g_multiViewer->hasLapCount();
+  snapshot.currentLap = g_multiViewer->currentLap();
+  snapshot.totalLaps = g_multiViewer->totalLaps();
+  snapshot.hasBlueFlag = g_multiViewer->hasBlueFlag();
+  strncpy(snapshot.blueFlagTla, g_multiViewer->blueFlagTla(), sizeof(snapshot.blueFlagTla) - 1);
+  g_link->publish(snapshot);
+}
+
 }  // namespace
 
 void registerApps(AppRegistry &registry) {
@@ -68,8 +107,13 @@ void registerApps(AppRegistry &registry) {
 
   static MvConfig config = multiViewerConfig();
   static MultiViewerClient multiViewer(net_link::outboundClient(), response, responseCap, config);
-  static F1FlagsApp f1FlagsApp(multiViewer);
+  static MvLink link;
+  static F1FlagsApp f1FlagsApp(link);
+
+  g_multiViewer = &multiViewer;
+  g_link = &link;
 
   registry.scheduler.add(f1FlagsApp);
   registry.mvCounters = &multiViewer.counters();
+  registry.mvPoll = &pollMultiViewer;
 }

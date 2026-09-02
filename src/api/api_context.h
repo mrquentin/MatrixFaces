@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "api/authenticator.h"
 #include "api/credential_store.h"
 #include "api/pairing_window.h"
@@ -23,8 +25,13 @@ struct ApiContext {
   TimeSource &clock;
   AppScheduler &scheduler;
 
-  // Owned by main.cpp: the LED is board feedback, driven from loop().
-  bool &desiredLedState;
+  // Owned by main.cpp: the LED is board feedback. Atomic because the render
+  // task writes it when a command lands and housekeeping reads it to drive the
+  // pin, and from phase 4.2 those are different tasks.
+  //
+  // Read-only from here. Handlers post a kSetLed command rather than writing
+  // it, like every other mutation.
+  const std::atomic<bool> &desiredLedState;
 
   const char *firmwareVersion;
 

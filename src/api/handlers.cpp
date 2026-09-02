@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#include <atomic>
 #include <cstring>
 
 #include "api/json_util.h"
@@ -211,7 +212,7 @@ void handleStatus(Client &client, const HttpRequest &, const char *, ApiContext 
   // just paired over the network has no other way to tell them apart.
   doc["board"] = board_caps::kBoardName;
   doc["uptime_s"] = millis() / 1000;
-  doc["led"] = ctx.desiredLedState;
+  doc["led"] = ctx.desiredLedState.load(std::memory_order_relaxed);
   doc["rssi"] = net_link::rssiDbm();
   doc["paired_clients"] = ctx.credentials.count();
   doc["time"] = ctx.clock.isValid() ? ctx.clock.now() : 0;
@@ -508,6 +509,15 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
   ram["stack_peak"] = m.stackPeak;
   ram["free_now"] = m.freeNow;
   ram["min_free_ever"] = m.minFreeEver;
+
+  // Whatever the board runs as tasks, and how close each came to filling its
+  // stack. Absent on a board that runs none.
+  if (m.renderStackFree != 0) {
+    JsonObject tasks = doc["task_stack_free"].to<JsonObject>();
+    tasks["render"] = m.renderStackFree;
+    tasks["net"] = m.netStackFree;
+    tasks["mv"] = m.mvStackFree;
+  }
 
   // Omitted rather than reported as zero on a board with no external RAM, so
   // "no psram section" and "psram exhausted" cannot be confused.

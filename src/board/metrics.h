@@ -69,6 +69,15 @@ struct Snapshot {
   // /api/metrics then omits the section rather than reporting an empty one.
   uint32_t psramTotal;
   uint32_t psramFree;
+
+  // Bytes still unused on each task's stack, at its worst moment so far.
+  // Zero on a board that runs no tasks, and /api/metrics omits the section --
+  // this is how the sizes chosen in board/esp32s3/exec.cpp are checked rather
+  // than trusted, so an undersized one shows up as a number well before it
+  // shows up as a crash.
+  uint32_t renderStackFree;
+  uint32_t netStackFree;
+  uint32_t mvStackFree;
 };
 
 Snapshot snapshot();

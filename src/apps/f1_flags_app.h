@@ -6,7 +6,7 @@
 #include "app.h"
 #include "apps/settings_bag.h"
 #include "flag_display.h"
-#include "net/multiviewer_client.h"
+#include "net/mv_link.h"
 
 // Displays F1 session state polled from a MultiViewer (https://multiviewer.app/)
 // instance on the local network: connection status while connecting/
@@ -15,16 +15,17 @@
 // track-wide flags are clear, and otherwise the lap count.
 class F1FlagsApp : public App {
  public:
-  static constexpr size_t kHostCap = 32;
+  static constexpr size_t kHostCap = MvLink::kHostCap;
 
-  // Borrowed, like every other app's dependencies (ClockApp takes its
-  // TimeSource the same way). The client is owned by the composition root, so
-  // its 32 KB response buffer is visible there rather than buried inside an
-  // app that only happens to be the current consumer.
-  explicit F1FlagsApp(MultiViewerClient &client);
+  // Borrowed, like every other app's dependencies. Not the client: since
+  // phase 4.2 the poll runs on its own task, so what this app has is the link
+  // between them -- a snapshot to read, a host to request, and a switch that
+  // says whether polling should happen at all. It never touches a socket.
+  explicit F1FlagsApp(MvLink &link);
 
   const char *name() const override { return "f1flags"; }
   void begin(Adafruit_Protomatter &matrix) override;
+  void end() override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
 
   SettingsBag *settings() override { return &settings_; }
@@ -51,16 +52,16 @@ class F1FlagsApp : public App {
     Mode mode = Mode::kNotConfigured;
     uint32_t a = 0;
     uint32_t b = 0;
-    char text[MultiViewerClient::kTlaCap] = {};
+    char text[mv::kTlaCap] = {};
   };
 
   void applyHost();
-  RenderState computeRenderState() const;
+  RenderState computeRenderState(const MvLink::Snapshot &snapshot) const;
   static void render(Adafruit_Protomatter &matrix, const RenderState &state);
   static bool renderStateEquals(const RenderState &a, const RenderState &b);
   static void drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg);
 
-  MultiViewerClient &client_;
+  MvLink &link_;
   char host_[kHostCap] = "";
   RenderState lastRendered_;
   bool everRendered_ = false;

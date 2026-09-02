@@ -1,13 +1,26 @@
 # Concurrency
 
-Written before there is any concurrency, which is the point. Phase 4.2 splits
-the ESP32-S3 across two cores; this is the contract that split has to obey, and
-it is enforceable now, while there is one task and every rule is trivially
-true.
+The ESP32-S3 runs four jobs at once. The rules below were written in phase 4.1,
+before any of them could be broken, and phase 4.2 turned them on.
 
-The M4 stays single-threaded permanently. It obeys the same rules because
-following them costs it nothing and because a rule only one board honours is a
-rule nobody checks.
+The M4 stays single-threaded permanently: it runs the same four jobs in turn,
+one waiting for the last. It obeys the same rules because following them costs
+it nothing, and because a rule only one board honours is a rule nobody checks.
+
+| Job | S3 | M4 |
+|---|---|---|
+| `renderTick` | task, core 1, 12 KB | in turn |
+| `netTick` | task, core 0, 12 KB | in turn |
+| `mvTick` | task, core 0, 8 KB | in turn |
+| `housekeepTick` | Arduino loop task, core 1 | in turn |
+
+Core 1 is the display's. Protomatter's row interrupt is allocated there by
+`matrix.begin()`, and every `show()` has to come from the task that owns the
+panel. Core 0 takes everything that can block, alongside lwIP's own task.
+
+What that buys, measured with `mv_mock.py --delay 2` so a poll takes two
+seconds: HTTP latency of **314 ms median on the S3 against 2063 ms on the M4**,
+where every single request waits for the poll. Same firmware, same poll.
 
 ## The one rule
 
@@ -53,34 +66,53 @@ to update — and to be asked about in review — whenever state is added.
 
 | State | Owner | Written by | Guard |
 |---|---|---|---|
-| App instances, their settings | render | drain only | the command queue |
-| `AppScheduler::activeIndex_` | render | drain only | the command queue |
-| `desiredLedState` | render | drain only | the command queue |
+| App instances, their settings | render | the drain | the command queue |
+| `SettingsBag` storage | render | the drain | `settingsMutex` — net reads it for `GET` |
+| `AppScheduler::activeIndex_` | render | the drain | the command queue |
 | `AppSettingsStore` | render | after a drain | only touched there |
-| `PairingWindow` | shared | button, `POST /pair` | one atomic word |
-| `CredentialStore` | shared | `POST /pair`, DOWN button | **nothing yet — see below** |
-| `Authenticator` replay state | net | request handling | single reader/writer today |
-| `MultiViewerClient` + its buffer | render | its own poll | owned by the app that polls |
-| `TimeSource` | render | `maintain()`, `setTz` | single writer today |
+| `desiredLedState` | render writes, housekeep reads | the drain | `std::atomic<bool>` |
+| `PairingWindow` | housekeep writes, net reads/writes | button, `POST /pair` | one atomic word |
+| `CredentialStore` | **net** | `POST /pair`, `DELETE`, the revoke flag | single task, by construction |
+| `Authenticator` replay state | **net** | request handling | single task, by construction |
+| `revokeAllRequested` | housekeep writes, net clears | DOWN button | `std::atomic<bool>`, `exchange` |
+| `MultiViewerClient` + its buffer | mv | its own poll | single task, by construction |
+| `MvLink` | both | mv publishes, render reads | mutex + one atomic |
+| `TimeSource` | housekeep writes, render reads | `maintain()`, `setTz` | **see below** |
 | `metrics` counters | any | `record*()` | plain 32-bit words |
 | `net_link` sockets | net | accept/serve | one consumer per socket |
 
-### Known gaps, to be closed by 4.2
+### Two things the split had to change
 
-These are safe today because there is one task. They are written down so the
-split cannot quietly break them.
+Writing this table is what found them; neither was a problem while one task ran
+everything.
 
-- **`CredentialStore`** is written by `POST /pair` and by the DOWN-button
-  factory reset. Once those are on different tasks it needs a guard — most
-  likely a command, since the mutations are rare and coarse.
-- **`Authenticator`** holds per-client replay state read and written during
-  request handling. Fine while one task serves requests; 5.1's WebSocket
-  connections are the first thing that could change that.
-- **`TimeSource`** is refreshed from the loop and read by the clock app. If
-  those separate, `localNow()` needs a coherent read of the offset.
-- **`MvSnapshot`** does not exist yet. Phase 4.2 introduces it precisely
-  because the MultiViewer poll and the app that reads its results will no
-  longer share a task.
+- **`CredentialStore` and `Authenticator`** were written by `POST /pair` on the
+  network side *and* by the DOWN-button factory reset in housekeeping. Those
+  are now different tasks on different cores. Rather than add a lock, the
+  button raises `revokeAllRequested` and the network task does the work at the
+  top of its next tick, so every write to both stays on one task.
+- **`SettingsBag`** is read by `GET /api/apps/<n>/settings` on the network task
+  while the drain writes it on the render task. A `bool` or an `int32_t` is
+  written atomically; a `char[32]` is not, and a GET landing mid-write would
+  see half of one value and half of another. `settingsMutex` covers the write
+  and the read. It is deliberately **not** held across `onSettingChanged()`,
+  which is app code that takes locks of its own — `F1FlagsApp`'s reaches into
+  `MvLink` — because holding two at once creates an ordering someone has to
+  remember.
+
+### Still open
+
+- **`TimeSource`** is refreshed by housekeeping and read by the clock app on
+  the render task. `now()` is a single 32-bit read, but `localNow()` also
+  consults zone state that `setTz()` writes. In practice `setTz` runs from the
+  drain on the render task and the zone changes about never, so this is a
+  narrow window rather than a live bug — but it is the last unguarded pair and
+  should get a mutex or an atomic snapshot.
+- **`netTick` serves one connection at a time.** A hostile client blocks all
+  HTTP for as long as the request timeout allows — measured at ~4s per
+  connection, and a client that reconnects immediately can hold it
+  indefinitely. Rendering is unaffected, which is the point, but phase 5.1
+  turns `netTick` into a non-blocking multiplex and should fix this too.
 
 ## The seam
 

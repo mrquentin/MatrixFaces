@@ -32,6 +32,12 @@ struct AppRegistry {
   // the poll's health. Left null by variants that do not, and the metrics
   // handler simply omits the section.
   const mv::Counters *mvCounters;
+
+  // The MultiViewer poll, if this variant has one. A function pointer rather
+  // than the client itself so main.cpp can drive the poll without knowing the
+  // transport type -- a variant that registers no F1 app links none of it, and
+  // leaving this null is how it says so.
+  void (*mvPoll)(uint32_t nowMs);
 };
 
 // Registers this variant's apps, in the order they appear at /api/apps.
