@@ -20,6 +20,12 @@ constexpr bool kHasWebSocket = false;
 // and the on-device web UI in phase 5.3.
 constexpr bool kHasFilesystem = false;
 
+// WiFiNINA hands out a small fixed pool of sockets shared between the
+// listening server and every outbound connection, so an outbound one held open
+// between uses is a socket the server may need. The MultiViewer poll therefore
+// connects and disconnects each time, as it always has.
+constexpr bool kHoldsOutboundConnections = false;
+
 // Local time comes from a geolocation lookup rather than a POSIX TZ string,
 // so TimeSource::setTz() is accepted and ignored here. See
 // samd51/local_time.cpp.

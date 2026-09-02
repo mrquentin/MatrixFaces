@@ -78,9 +78,13 @@ struct SessionState {
 struct Counters {
   // Transport, maintained by MultiViewerClient.
   uint32_t polls = 0;
+  // Sockets opened. Against `polls` this is how keep-alive is observed from
+  // outside: one connect per poll means it is not being held, and far fewer
+  // means it is. On a board that reconnects by design the two track together.
+  uint32_t connects = 0;
   uint32_t connectFailures = 0;
   uint32_t emptyResponses = 0;
-  uint32_t framingErrors = 0;  // no CRLFCRLF, i.e. not an HTTP response
+  uint32_t framingErrors = 0;  // not a well-formed HTTP response
 
   // Parsing, maintained here.
   uint32_t parsed = 0;     // a live session object was walked
