@@ -35,17 +35,18 @@ jobs:
       - name: Stub secrets.h
         run: cp include/secrets.h.example include/secrets.h
 
-      - name: Build board firmware
-        run: pio run -e adafruit_matrix_portal_m4
+      - name: Build m4 firmware
+        run: pio run -e m4
 
-      - name: Build release firmware
-        run: pio run -e release
+      - name: Build m4_release firmware
+        run: pio run -e m4_release
 
+      # Named by board from here on: the S3 joins this list in phase 3.
       - name: Stage firmware artifacts
         run: |
           mkdir -p dist
-          cp .pio/build/adafruit_matrix_portal_m4/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}.bin"
-          cp .pio/build/release/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-release.bin"
+          cp .pio/build/m4/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-m4.bin"
+          cp .pio/build/m4_release/firmware.bin "dist/matrixfaces-${GITHUB_REF_NAME}-m4-release.bin"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

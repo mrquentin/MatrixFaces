@@ -24,7 +24,7 @@ pairing and HMAC-SHA256 request signing, plus a swappable-app framework
 
 ## Quick start
 
-    pio run -e adafruit_matrix_portal_m4 -t upload
+    pio run -e m4 -t upload
     pio device monitor
 
 Copy `include/secrets.h.example` to `include/secrets.h` and fill in your WiFi

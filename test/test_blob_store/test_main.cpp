@@ -9,27 +9,15 @@
 #include <unity.h>
 
 #include <cstring>
-#include <map>
-#include <string>
-#include <vector>
 
 #include "board/blob_store.h"
+#include "board/native/blob_store_native.h"
 #include "storage/record_blob.h"
 
-// ---------------------------------------------------------------------------
-// In-memory blob_store, standing in for a board. Exercising the real stores
-// against this is what makes the contract testable without hardware.
-// ---------------------------------------------------------------------------
+// The blob_store under test is src/board/native's real in-memory
+// implementation, not a fake written here -- so this suite exercises the same
+// code every other host test runs against.
 namespace {
-
-std::map<std::string, std::vector<uint8_t>> g_blobs;
-bool g_placementOk = true;
-int g_saveCount = 0;
-
-bool known(const char *name) {
-  return name != nullptr && (strcmp(name, blob_store::kCredentials) == 0 ||
-                             strcmp(name, blob_store::kAppSettings) == 0);
-}
 
 // Mirrors the record the credential store persists.
 struct FakeClient {
@@ -46,41 +34,7 @@ constexpr size_t kCredBlobSize = record_blob::framedSize(sizeof(FakeClient), kMa
 
 }  // namespace
 
-namespace blob_store {
-
-bool checkPlacement(const char *name) { return g_placementOk && known(name); }
-
-bool load(const char *name, void *buf, size_t cap, size_t &outLen) {
-  if (!known(name)) return false;
-  auto it = g_blobs.find(name);
-  if (it == g_blobs.end()) {
-    // Erased flash reads as 0xFF; the fake reproduces that so "blank" is
-    // exercised the same way it happens on a real board.
-    memset(buf, 0xFF, cap);
-    outLen = cap;
-    return true;
-  }
-  const size_t n = it->second.size() < cap ? it->second.size() : cap;
-  memcpy(buf, it->second.data(), n);
-  outLen = n;
-  return true;
-}
-
-bool save(const char *name, const void *buf, size_t len) {
-  if (!known(name)) return false;
-  ++g_saveCount;
-  const auto *bytes = static_cast<const uint8_t *>(buf);
-  g_blobs[name].assign(bytes, bytes + len);
-  return true;
-}
-
-}  // namespace blob_store
-
-void setUp() {
-  g_blobs.clear();
-  g_placementOk = true;
-  g_saveCount = 0;
-}
+void setUp() { blob_store_native::reset(); }
 void tearDown() {}
 
 // --- CRC -------------------------------------------------------------------
