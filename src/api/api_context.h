@@ -26,11 +26,6 @@ struct ApiContext {
 
   const char *firmwareVersion;
 
-  // Signal strength is a radio detail, and reading it directly would drag
-  // WiFiNINA back into the API layer that phase 1.1 just got it out of. The
-  // composition root supplies it; board/net_link.h absorbs this in phase 2.
-  int32_t (*rssiDbm)();
-
   // Read-only view of the MultiViewer poll's health, for /api/metrics. The
   // pure parse header rather than the client, so the API layer picks up no
   // transport dependency.

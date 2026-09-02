@@ -1,4 +1,6 @@
-#include "time_source.h"
+#include "board/time_source.h"
+
+#include "board/samd51/local_time.h"
 
 #include <Arduino.h>
 #include <WiFiNINA.h>
@@ -25,6 +27,9 @@ bool TimeSource::sync() {
 }
 
 void TimeSource::maintain() {
+  // The local-time offset keeps its own, much longer, schedule.
+  samd51_local_time::maintain();
+
   const uint32_t interval = valid_ ? kResyncIntervalMs : 30000;
   if (attempted_ && millis() - lastAttemptMs_ < interval) return;
   sync();

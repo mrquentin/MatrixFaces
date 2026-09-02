@@ -4,7 +4,7 @@
 
 #include <cstring>
 
-#include "board/flash_block.h"
+#include "board/samd51/flash_block.h"
 
 extern "C" {
 // End of the image the uploader writes. Used to prove a blob's block sits

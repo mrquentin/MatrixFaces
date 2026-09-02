@@ -1,7 +1,5 @@
 #include <Adafruit_Protomatter.h>
 #include <Client.h>
-#include <SPI.h>
-#include <WiFiNINA.h>
 
 #include <cstring>
 
@@ -14,10 +12,10 @@
 #include "apps/text_app.h"
 #include "board/button.h"
 #include "board/metrics.h"
+#include "board/net_link.h"
+#include "board/samd51/board_pins.h"
 #include "board/secure_random.h"
 #include "net/multiviewer_client.h"
-#include "net/timezone_offset.h"
-#include "secrets.h"
 
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "dev"
@@ -25,21 +23,8 @@
 
 namespace {
 
-// The Matrix Portal M4's UP/DOWN buttons; see the variant's pin table.
-constexpr uint8_t kButtonUpPin = 2;
-constexpr uint8_t kButtonDownPin = 3;
 constexpr uint32_t kFactoryResetHoldMs = 5000;
 constexpr uint32_t kPairingBlinkMs = 150;
-
-WiFiServer server(80);
-
-// Outbound sockets, one per consumer. WiFiClient reuses its socket across
-// connect/stop cycles, so a single instance per consumer is equivalent to the
-// short-lived locals these replace -- but two consumers sharing one instance
-// would tear down each other's connections, hence one each. Owned here so that
-// nothing under src/net or src/api has to know what the radio is.
-WiFiClient timezoneTransport;
-WiFiClient multiViewerTransport;
 
 CredentialStore credentials;
 TimeSource clockSource;
@@ -48,38 +33,24 @@ PairingWindow pairing;
 Button buttonUp;
 Button buttonDown;
 
-// RGB matrix wiring for a 128x64 panel; see
-// https://learn.adafruit.com/adafruit-matrixportal-m4/protomatter-arduino-library
-//
-// Pin order is R1,G1,B1,R2,G2,B2 by Protomatter convention, but this panel's
-// physical HUB75 wiring cycles one position off that (confirmed by testing
-// pure red/green/blue: software R lit the panel's B sub-pixel, G lit R, B lit
-// G). Rotated left by one position per triplet so software "R" drives the
-// pin actually wired to the panel's R input, etc.
-uint8_t matrixRgbPins[] = {8, 9, 7, 11, 12, 10};
-uint8_t matrixAddrPins[] = {17, 18, 19, 20, 21};
-constexpr uint8_t kMatrixClockPin = 14;
-constexpr uint8_t kMatrixLatchPin = 15;
-constexpr uint8_t kMatrixOePin = 16;
-
 // Bit depth 4, single chain, double-buffered: TextApp's scroll animation
 // redraws continuously, and every app already does a full fillScreen() each
-// frame, so there's no stale-buffer content to worry about. Height is
-// inferred from the address-pin count (5 pins -> 2*2^5 = 64px), not passed
-// explicitly.
-Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrixClockPin,
-                            kMatrixLatchPin, kMatrixOePin, true);
+// frame, so there's no stale-buffer content to worry about. Pin tables and
+// geometry come from the board.
+Adafruit_Protomatter matrix(board_pins::kMatrixWidth, 4, 1, board_pins::kMatrixRgb,
+                            board_pins::kMatrixAddrPins, board_pins::kMatrixAddr,
+                            board_pins::kMatrixClock, board_pins::kMatrixLatch,
+                            board_pins::kMatrixOe, true);
 AppScheduler appScheduler(matrix);
-TimezoneOffset timezoneOffset(timezoneTransport);
-
 // The single largest allocation in the firmware, at 17% of RAM. It lives here,
 // in plain sight, rather than as a function-local static inside the poll --
 // phase 3.2 moves it behind board/bigbuf.h so the S3 can put it in PSRAM and a
 // clock-only build can leave it out entirely.
 char multiViewerBuffer[kMvResponseCap];
-MultiViewerClient multiViewer(multiViewerTransport, multiViewerBuffer, sizeof(multiViewerBuffer));
+MultiViewerClient multiViewer(net_link::outboundClient(), multiViewerBuffer,
+                             sizeof(multiViewerBuffer));
 
-ClockApp clockApp(clockSource, timezoneOffset);
+ClockApp clockApp(clockSource);
 TextApp textApp;
 F1FlagsApp f1FlagsApp(multiViewer);
 FlagTestApp flagTestApp;
@@ -87,38 +58,13 @@ AppSettingsStore appSettingsStore;
 
 bool desiredLedState = false;
 
-int32_t currentRssi() { return WiFi.RSSI(); }
-
 // The API layer's whole view of the firmware. Assembled once here; handlers
 // reach for nothing else.
 ApiContext apiContext{credentials,     authenticator,
                       pairing,         clockSource,
                       appScheduler,    appSettingsStore,
                       desiredLedState, FIRMWARE_VERSION,
-                      currentRssi,     &multiViewer.counters()};
-
-void printWiFiStatus() {
-  Serial.print(F("SSID: "));
-  Serial.println(WiFi.SSID());
-  // noinspection HttpUrlsUsage  -- the board serves plain HTTP by design
-  Serial.print(F("IP address: http://"));
-  Serial.println(WiFi.localIP());
-  Serial.print(F("Signal strength (RSSI): "));
-  Serial.print(WiFi.RSSI());
-  Serial.println(F(" dBm"));
-}
-
-void connectWiFi() {
-  do {
-    Serial.print(F("Connecting to "));
-    Serial.println(SECRET_SSID);
-    WiFi.begin(SECRET_SSID, SECRET_PASS);
-    delay(2000);
-  } while (WiFi.status() != WL_CONNECTED);
-
-  Serial.println(F("Connected!"));
-  printWiFiStatus();
-}
+                      &multiViewer.counters()};
 
 // Blinks the LED forever after printing a fatal boot error; never returns.
 [[noreturn]] void haltBlinking(const __FlashStringHelper *message) {
@@ -217,8 +163,8 @@ void setup() {
 
   secure_random::begin();
   credentials.begin();
-  buttonUp.begin(kButtonUpPin);
-  buttonDown.begin(kButtonDownPin);
+  buttonUp.begin(board_pins::kButtonUp);
+  buttonDown.begin(board_pins::kButtonDown);
 
   // Bring up the RGB matrix before anything WiFi-related blocks, so the
   // clock app can render while the board is still negotiating a connection.
@@ -234,25 +180,16 @@ void setup() {
     haltBlinking(F("Halting: matrix init failed"));
   }
 
-  // The Matrix Portal M4's ESP32 co-processor is on non-default pins
-  WiFi.setPins(SPIWIFI_SS, SPIWIFI_ACK, ESP32_RESETN, ESP32_GPIO0, &SPIWIFI);
-
-  if (WiFi.status() == WL_NO_MODULE) {
-    haltBlinking(F("Communication with WiFi module failed!"));
-  }
-
   Serial.print(F("MatrixFaces firmware: "));
   Serial.println(FIRMWARE_VERSION);
-  Serial.print(F("WiFi module firmware: "));
-  Serial.println(WiFiClass::firmwareVersion());
 
-  connectWiFi();
+  net_link::begin();
 
   if (!clockSource.sync()) {
     Serial.println(F("[time] no NTP time yet; API calls return 503 until it syncs"));
   }
 
-  server.begin();
+  net_link::serveHttp(80);
   Serial.println(F("Press UP to open a 60s pairing window; hold DOWN 5s to revoke all clients."));
 }
 
@@ -278,29 +215,23 @@ void loop() {
     }
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(F("WiFi lost, reconnecting"));
-    connectWiFi();
-    server.begin();
-  }
+  net_link::maintain();
 
   clockSource.maintain();
-  timezoneOffset.maintain();
   appScheduler.update(millis());
   updateLed();
   metrics::tick();
   reportMetrics();
 
-  WiFiClient client = server.available();
-  if (!client) return;
+  Client *client = net_link::accept();
+  if (client == nullptr) return;
 
-  // Timed around the work only: the flush delay below is a fixed cost that
-  // would otherwise swamp the numbers it is meant to expose. Cycles rather than
-  // micros() so the whole thing folds away when metrics are compiled out.
+  // Timed around the work only: the flush finishRequest() does is a fixed cost
+  // that would otherwise swamp the numbers it is meant to expose. Cycles rather
+  // than micros() so the whole thing folds away when metrics are compiled out.
   const uint32_t requestStartCycles = metrics::cycles();
-  serveClient(client);
+  serveClient(*client);
   metrics::recordRequest(metrics::cycles() - requestStartCycles);
 
-  delay(10);
-  client.stop();
+  net_link::finishRequest();
 }

@@ -3,17 +3,16 @@
 #include <cstdint>
 
 #include "app.h"
-#include "board/time_source.h"
 #include "apps/settings_bag.h"
-#include "net/timezone_offset.h"
+#include "board/time_source.h"
 
 // Renders HH:MM:SS local time, centered on the panel, redrawing once per
 // whole second so the app never contends with the HTTP server. TimeSource
-// supplies UTC; `tz` supplies the UTC offset (0, i.e. UTC, until the first
-// successful lookup resolves it).
+// supplies the local breakdown; how the board works out its offset is not
+// this app's concern.
 class ClockApp : public App {
  public:
-  ClockApp(const TimeSource &clock, const TimezoneOffset &tz);
+  explicit ClockApp(const TimeSource &clock);
 
   const char *name() const override { return "clock"; }
   void begin(Adafruit_Protomatter &matrix) override;
@@ -29,7 +28,6 @@ class ClockApp : public App {
   static constexpr uint32_t kNotSyncedRendered = 0xFFFFFFFEu;
 
   const TimeSource &clock_;
-  const TimezoneOffset &tz_;
   uint32_t lastRendered_ = kNeverRendered;
   int32_t colorRgb_ = 0x00b4ff;  // matches the previous hardcoded color565(0, 180, 255)
   int32_t textSize_ = 1;
