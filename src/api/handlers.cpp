@@ -413,7 +413,7 @@ void handleRevokeClient(Client &client, const HttpRequest &, const char *wildcar
 }
 
 #if METRICS_ENABLED
-void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext &) {
+void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext &ctx) {
   const metrics::Snapshot m = metrics::snapshot();
 
   JsonDocument doc;
@@ -433,6 +433,22 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
   ram["stack_peak"] = m.stackPeak;
   ram["free_now"] = m.freeNow;
   ram["min_free_ever"] = m.minFreeEver;
+
+  // Poll health. `parsed` climbing while the display sits on stale data is the
+  // signal that the feed's shape changed under us; `malformed` or `truncated`
+  // climbing says the same thing more loudly.
+  if (ctx.mvCounters != nullptr) {
+    const mv::Counters &c = *ctx.mvCounters;
+    JsonObject multiViewer = doc["multiviewer"].to<JsonObject>();
+    multiViewer["polls"] = c.polls;
+    multiViewer["connect_failures"] = c.connectFailures;
+    multiViewer["empty_responses"] = c.emptyResponses;
+    multiViewer["framing_errors"] = c.framingErrors;
+    multiViewer["parsed"] = c.parsed;
+    multiViewer["no_session"] = c.noSession;
+    multiViewer["malformed"] = c.malformed;
+    multiViewer["truncated"] = c.truncated;
+  }
 
   sendJson(client, 200, "OK", doc);
 }

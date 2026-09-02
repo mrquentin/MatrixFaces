@@ -6,34 +6,31 @@
 #include <cstddef>
 #include <cstdint>
 
-// Polls MultiViewer's (https://multiviewer.app/) local GraphQL API at
-// http://<host>:10101/api/graphql for F1 flag/lap state.
+#include "net/multiviewer_parse.h"
+
+// Transport for MultiViewer's (https://multiviewer.app/) local GraphQL API at
+// http://<host>:10101/api/graphql: connect, POST the query, read the response,
+// hand the body to mv::parse().
 //
-// MultiViewer doesn't publish a schema for this API -- the field names below
-// come from the raw F1 SignalR live-timing feed that it passes through
-// verbatim (topics like TrackStatus, RaceControlMessages), reverse-engineered
-// by the community (fastf1, openf1, and others), not from any spec
-// MultiViewer itself provides. Every field is therefore treated as optional:
-// a missing or unrecognised value degrades to "unknown" rather than a guess,
-// so schema drift on MultiViewer's end blanks a field instead of showing
-// something wrong.
+// Everything about interpreting the feed lives in net/multiviewer_parse, which
+// has no Arduino dependency and is tested on the host against captured
+// responses. This class is only the part that needs a socket.
 class MultiViewerClient {
  public:
-  enum class Flag : uint8_t {
-    kUnknown,
-    kAllClear,
-    kYellow,
-    kSafetyCar,
-    kVirtualSafetyCar,
-    kRed,
-  };
-
-  static constexpr size_t kTlaCap = 4;  // 3-letter driver acronym + terminator
+  // Kept as member aliases so callers (F1FlagsApp) read naturally and did not
+  // have to change when the parsing moved out.
+  using Flag = mv::Flag;
+  static constexpr size_t kTlaCap = mv::kTlaCap;
 
   // `transport` is borrowed, not owned, and is reconnected on each poll. It
   // must not be shared with another consumer: connecting tears down whatever
   // connection the instance was already holding.
-  explicit MultiViewerClient(Client &transport) : transport_(transport) {}
+  //
+  // `buffer` is the response scratch space, supplied by the composition root
+  // because at 32 KB it is by far the largest single allocation in the
+  // firmware, and hiding it in a function-local static made that invisible.
+  MultiViewerClient(Client &transport, char *buffer, size_t bufferCap)
+      : transport_(transport), buffer_(buffer), bufferCap_(bufferCap) {}
 
   // Host to poll; port 10101 is MultiViewer's fixed local API port. An unset
   // (all-zero) address means "not configured" and poll() is then a no-op.
@@ -54,20 +51,25 @@ class MultiViewerClient {
   // instead of showing stale data.
   bool connected() const { return connected_; }
 
+  // Why polls are succeeding or failing. Surfaced through /api/metrics: a feed
+  // that has quietly stopped parsing otherwise looks like a quiet session.
+  const mv::Counters &counters() const { return counters_; }
+  const mv::SessionState &state() const { return state_; }
+
   // Current track-wide flag. MultiViewer/F1 already resolve this to a single
   // value, so no extra prioritisation is needed here: it's never both
   // "Yellow" and "SCDeployed" at once.
-  Flag trackFlag() const { return trackFlag_; }
+  Flag trackFlag() const { return state_.trackFlag; }
 
-  bool hasLapCount() const { return hasLapCount_; }
-  uint32_t currentLap() const { return currentLap_; }
-  uint32_t totalLaps() const { return totalLaps_; }
+  bool hasLapCount() const { return state_.hasLapCount; }
+  uint32_t currentLap() const { return state_.currentLap; }
+  uint32_t totalLaps() const { return state_.totalLaps; }
 
   // A driver-scoped blue flag, if one is currently active. Deliberately not
   // gated on trackFlag() here -- see f1_flags_app.cpp for the display
   // priority (blue is suppressed whenever another flag is showing).
-  bool hasBlueFlag() const { return blueFlagTla_[0] != '\0'; }
-  const char *blueFlagTla() const { return blueFlagTla_; }
+  bool hasBlueFlag() const { return state_.hasBlueFlag(); }
+  const char *blueFlagTla() const { return state_.blueFlagTla; }
 
  private:
   static constexpr uint16_t kPort = 10101;
@@ -77,57 +79,26 @@ class MultiViewerClient {
   // wrong/unreachable host doesn't pin loop() in back-to-back 10s blocks.
   static constexpr uint32_t kReconnectBackoffMs = 30000;
   static constexpr uint32_t kResponseTimeoutMs = 3000;
-  // Sized for TrackStatus/LapCount/DriverList (a few KB combined) plus
-  // RaceControlMessages, which grows for the entire
-  // session and is the dominant cost -- comfortably covers even a very
-  // eventful multi-hour race. If a session ever produces more, only blue-flag
-  // detection (the last, largest field in the query) degrades; the smaller
-  // fields ordered ahead of it in the query still parse.
-  static constexpr size_t kResponseCap = 32768;
-  // Bounds the RaceControlMessages/DriverList dict scans; matches the
-  // largest F1 grid plus reserve/test entries with generous headroom.
-  static constexpr uint8_t kMaxDrivers = 28;
-  // A blue flag is re-issued repeatedly while it applies rather than having
-  // a reliable single clearing event, so an explicit CLEAR message removes
-  // it immediately and this timeout is just a safety net against a missed
-  // one.
-  static constexpr uint32_t kBlueFlagTimeoutMs = 20000;
 
-  struct BlueFlagEntry {
-    uint16_t racingNumber = 0;  // 0 == unused slot
-    uint32_t lastSeenMs = 0;
-  };
-
-  struct DriverEntry {
-    uint16_t racingNumber = 0;  // 0 == unused slot
-    char tla[kTlaCap] = {};
-  };
-
-  bool fetch(char *buf, size_t cap, size_t &outLen);
-  void parseResponse(char *buf, size_t len, uint32_t nowMs);
-  void parseTrackStatus(char *scopeStart, char *scopeEnd);
-  void parseLapCount(char *scopeStart, char *scopeEnd);
-  void parseDriverList(char *scopeStart, char *scopeEnd);
-  void parseRaceControlMessages(char *scopeStart, char *scopeEnd, uint32_t nowMs);
-  void resetSessionState();
-  const char *tlaForRacingNumber(uint16_t racingNumber) const;
+  bool fetch(size_t &outLen);
 
   Client &transport_;
+  char *buffer_;
+  size_t bufferCap_;
+
   IPAddress host_;
   uint32_t lastPollMs_ = 0;
   bool everPolled_ = false;
-
   bool connected_ = false;
 
-  Flag trackFlag_ = Flag::kUnknown;
-
-  bool hasLapCount_ = false;
-  uint32_t currentLap_ = 0;
-  uint32_t totalLaps_ = 0;
-
-  DriverEntry drivers_[kMaxDrivers];
-
-  int32_t lastMessageIndex_ = -1;
-  BlueFlagEntry blueFlags_[kMaxDrivers];
-  char blueFlagTla_[kTlaCap] = {};
+  mv::SessionState state_;
+  mv::Counters counters_;
 };
+
+// Sized for TrackStatus/LapCount/DriverList (a few KB combined) plus
+// RaceControlMessages, which grows for the entire session and is the dominant
+// cost -- comfortably covers even a very eventful multi-hour race. If a session
+// ever produces more, only blue-flag detection (the last, largest field in the
+// query) degrades; the smaller fields ordered ahead of it still parse, and the
+// `truncated` counter now says so out loud.
+constexpr size_t kMvResponseCap = 32768;

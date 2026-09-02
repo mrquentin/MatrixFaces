@@ -15,6 +15,7 @@
 #include "board/button.h"
 #include "board/metrics.h"
 #include "board/secure_random.h"
+#include "net/multiviewer_client.h"
 #include "net/timezone_offset.h"
 #include "secrets.h"
 
@@ -70,9 +71,17 @@ Adafruit_Protomatter matrix(128, 4, 1, matrixRgbPins, 5, matrixAddrPins, kMatrix
                             kMatrixLatchPin, kMatrixOePin, true);
 AppScheduler appScheduler(matrix);
 TimezoneOffset timezoneOffset(timezoneTransport);
+
+// The single largest allocation in the firmware, at 17% of RAM. It lives here,
+// in plain sight, rather than as a function-local static inside the poll --
+// phase 3.2 moves it behind board/bigbuf.h so the S3 can put it in PSRAM and a
+// clock-only build can leave it out entirely.
+char multiViewerBuffer[kMvResponseCap];
+MultiViewerClient multiViewer(multiViewerTransport, multiViewerBuffer, sizeof(multiViewerBuffer));
+
 ClockApp clockApp(clockSource, timezoneOffset);
 TextApp textApp;
-F1FlagsApp f1FlagsApp(multiViewerTransport);
+F1FlagsApp f1FlagsApp(multiViewer);
 FlagTestApp flagTestApp;
 AppSettingsStore appSettingsStore;
 
@@ -82,11 +91,11 @@ int32_t currentRssi() { return WiFi.RSSI(); }
 
 // The API layer's whole view of the firmware. Assembled once here; handlers
 // reach for nothing else.
-ApiContext apiContext{credentials,      authenticator,
-                      pairing,          clockSource,
-                      appScheduler,     appSettingsStore,
-                      desiredLedState,  FIRMWARE_VERSION,
-                      currentRssi};
+ApiContext apiContext{credentials,     authenticator,
+                      pairing,         clockSource,
+                      appScheduler,    appSettingsStore,
+                      desiredLedState, FIRMWARE_VERSION,
+                      currentRssi,     &multiViewer.counters()};
 
 void printWiFiStatus() {
   Serial.print(F("SSID: "));
