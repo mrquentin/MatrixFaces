@@ -8,9 +8,31 @@
     pio test -e adafruit_matrix_portal_m4    # runs on the board over serial
     pio test -e native                       # needs a host g++/clang++ on PATH
 
-The tests in `test/test_apiauth/` cover SHA-256 and HMAC against FIPS 180-4 and
-RFC 4231 vectors, plus signature and header-parsing behaviour. Everything under
-`lib/apiauth/` is free of Arduino headers so it builds on the host too.
+### Host test suites
+
+`env:native` builds the portable half of the firmware (see `build_src_filter`
+in `platformio.ini`) against the Arduino fakes in `test/support/fake_arduino/`:
+
+| Suite | Covers |
+|---|---|
+| `test_apiauth` | SHA-256 and HMAC against FIPS 180-4 / RFC 4231 vectors, signing, header parsing |
+| `test_http_request` | request parsing, size caps, and every timeout path |
+| `test_router` | route matching, wildcards, and which paths 404 |
+| `test_json` | body parsing, response serialization, Content-Length |
+
+The fakes make `millis()` a controlled value that `delay()` advances rather
+than real time, so the slow-client cases — a trickled header, a stalled body —
+run deterministically in microseconds instead of needing a four-second wall
+clock and a real socket.
+
+`test_router`'s expectations were captured from a running board *before* the
+router was extracted from `main.cpp`, which is what makes it a regression check
+on that extraction rather than a description of whatever the code now does.
+
+Note that PlatformIO's native platform invokes `gcc`/`g++` by name and ignores
+`CC`/`CXX`, so those must be on PATH. On a machine with only clang, shim them:
+put `g++.cmd`/`gcc.cmd` (plus `ar`/`ranlib` → `llvm-ar`/`llvm-ranlib`) somewhere
+on PATH forwarding to the clang equivalents.
 
 Copy `include/secrets.h.example` to `include/secrets.h` and fill in
 `SECRET_SSID`/`SECRET_PASS`; the real file is gitignored.
