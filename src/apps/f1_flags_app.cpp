@@ -5,13 +5,15 @@
 #include <cstdio>
 #include <cstring>
 
-namespace {
+F1FlagsApp::F1FlagsApp(MultiViewerClient &client)
+    : client_(client),
+      bindings_{SettingsBag::text("host", "MultiViewer host IP", host_)},
+      settings_(*this, bindings_, 1) {}
 
-constexpr SettingDescriptor kSettings[] = {
-    {"host", "MultiViewer host IP", SettingType::kString, 0, 0, F1FlagsApp::kHostCap - 1},
-};
-
-}  // namespace
+void F1FlagsApp::onSettingChanged(const char *) {
+  applyHost();
+  everRendered_ = false;  // force a redraw; connection state just reset
+}
 
 void F1FlagsApp::begin(Adafruit_Protomatter &matrix) {
   (void)matrix;
@@ -161,30 +163,3 @@ void F1FlagsApp::render(Adafruit_Protomatter &matrix, const RenderState &state) 
   }
 }
 
-const SettingDescriptor &F1FlagsApp::settingDescriptor(uint8_t index) const {
-  static constexpr SettingDescriptor kNone{"", "", SettingType::kBool, 0, 0, 0};
-  return index < settingCount() ? kSettings[index] : kNone;
-}
-
-bool F1FlagsApp::getSetting(const char *key, SettingValue &out) const {
-  if (strcmp(key, "host") == 0) {
-    out.type = SettingType::kString;
-    strncpy(out.stringValue, host_, sizeof(out.stringValue) - 1);
-    out.stringValue[sizeof(out.stringValue) - 1] = '\0';
-    return true;
-  }
-  return false;
-}
-
-bool F1FlagsApp::setSetting(const char *key, const SettingValue &value) {
-  if (strcmp(key, "host") == 0) {
-    if (value.type != SettingType::kString) return false;
-
-    strncpy(host_, value.stringValue, sizeof(host_) - 1);
-    host_[sizeof(host_) - 1] = '\0';
-    applyHost();
-    everRendered_ = false;  // force a redraw; connection state just reset
-    return true;
-  }
-  return false;
-}

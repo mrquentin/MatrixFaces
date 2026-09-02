@@ -35,17 +35,25 @@ class AppScheduler {
   const char *name(uint8_t index) const;
 
   // Settings forwarding, bounds-checked against both the app index and (for
-  // settingDescriptor) that app's own settingCount(). These are what let the
+  // settingDescriptor) that app's own setting count. These are what let the
   // API layer discover and drive any app's configuration generically.
+  //
+  // validate and apply are separate so a request carrying several settings can
+  // be checked in full before any of it lands. Phase 4 relies on the same split
+  // to validate on the network task and write on the render task.
   uint8_t settingCount(uint8_t appIndex) const;
   const SettingDescriptor &settingDescriptor(uint8_t appIndex, uint8_t settingIndex) const;
   bool getSetting(uint8_t appIndex, const char *key, SettingValue &out) const;
-  bool setSetting(uint8_t appIndex, const char *key, const SettingValue &value);
+  bool validateSetting(uint8_t appIndex, const char *key, const SettingValue &value) const;
+  bool applySetting(uint8_t appIndex, const char *key, const SettingValue &value);
 
   // Call every loop() iteration.
   void update(uint32_t nowMs);
 
  private:
+  const SettingsBag *bagFor(uint8_t appIndex) const;
+  SettingsBag *bagFor(uint8_t appIndex);
+
   Adafruit_Protomatter &matrix_;
   App *apps_[kMaxApps] = {};
   uint8_t count_ = 0;

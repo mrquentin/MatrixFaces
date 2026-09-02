@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "app.h"
+#include "apps/settings_bag.h"
 
 // Displays a configurable message: centered and static if it fits the panel,
 // otherwise scrolling horizontally in a continuous loop. Demonstrates App's
@@ -12,14 +13,14 @@ class TextApp : public App {
  public:
   static constexpr size_t kTextCap = 32;
 
+  TextApp();
+
   const char *name() const override { return "text"; }
   void begin(Adafruit_Protomatter &matrix) override;
   void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
 
-  uint8_t settingCount() const override { return 3; }
-  const SettingDescriptor &settingDescriptor(uint8_t index) const override;
-  bool getSetting(const char *key, SettingValue &out) const override;
-  bool setSetting(const char *key, const SettingValue &value) override;
+  SettingsBag *settings() override { return &settings_; }
+  void onSettingChanged(const char *key) override;
 
  private:
   static constexpr uint32_t kScrollIntervalMs = 30;  // 1px/frame, ~33px/s
@@ -40,4 +41,7 @@ class TextApp : public App {
   int16_t scrollX_ = 0;
   int16_t scrollMinX_ = 0;  // scrollX_ below this means fully off the left edge
   uint32_t lastFrameMs_ = 0;
+
+  SettingsBag::Binding bindings_[3];
+  SettingsBag settings_;
 };
