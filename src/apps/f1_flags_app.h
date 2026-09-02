@@ -16,9 +16,11 @@ class F1FlagsApp : public App {
  public:
   static constexpr size_t kHostCap = 32;
 
-  // The socket the MultiViewer poll runs over. Forwarded straight to
-  // MultiViewerClient; ownership stays at the composition root.
-  explicit F1FlagsApp(Client &transport) : client_(transport) {}
+  // Borrowed, like every other app's dependencies (ClockApp takes its
+  // TimeSource the same way). The client is owned by the composition root, so
+  // its 32 KB response buffer is visible there rather than buried inside an
+  // app that only happens to be the current consumer.
+  explicit F1FlagsApp(MultiViewerClient &client) : client_(client) {}
 
   const char *name() const override { return "f1flags"; }
   void begin(Adafruit_Protomatter &matrix) override;
@@ -59,7 +61,7 @@ class F1FlagsApp : public App {
   static bool renderStateEquals(const RenderState &a, const RenderState &b);
   static void drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg);
 
-  MultiViewerClient client_;
+  MultiViewerClient &client_;
   char host_[kHostCap] = "";
   RenderState lastRendered_;
   bool everRendered_ = false;
