@@ -5,8 +5,8 @@
 #include <cstdio>
 #include <cstring>
 
-F1FlagsApp::F1FlagsApp(MultiViewerClient &client)
-    : client_(client),
+F1FlagsApp::F1FlagsApp(MvLink &link)
+    : link_(link),
       bindings_{SettingsBag::text("host", "MultiViewer host IP", host_)},
       settings_(*this, bindings_, 1) {}
 
@@ -20,25 +20,28 @@ void F1FlagsApp::begin(Adafruit_Protomatter &matrix) {
   // Forces an immediate redraw on the next update(), same reasoning as
   // ClockApp/TextApp: switching back to this app should repaint right away.
   everRendered_ = false;
+  // Polling only happens while this app is on screen. That was previously a
+  // consequence of update() being the only caller; now that the poll has its
+  // own task it has to be said out loud.
+  link_.setPollEnabled(true);
 }
 
-void F1FlagsApp::applyHost() {
-  IPAddress ip;
-  if (host_[0] != '\0' && ip.fromString(host_)) {
-    client_.setHost(ip);
-  } else {
-    client_.setHost(IPAddress());
-  }
-}
+void F1FlagsApp::end() { link_.setPollEnabled(false); }
 
-F1FlagsApp::RenderState F1FlagsApp::computeRenderState() const {
+// Handed over rather than applied: the socket belongs to the poller's task, so
+// this only records what was asked for and the poller adopts it on its own
+// side. Parsing the address stays there too -- rejecting a malformed one is
+// the poller's business, not the display's.
+void F1FlagsApp::applyHost() { link_.requestHost(host_); }
+
+F1FlagsApp::RenderState F1FlagsApp::computeRenderState(const MvLink::Snapshot &snapshot) const {
   RenderState state;
 
   if (host_[0] == '\0') {
     state.mode = Mode::kNotConfigured;
     return state;
   }
-  if (!client_.connected()) {
+  if (!snapshot.connected) {
     state.mode = Mode::kConnecting;
     return state;
   }
@@ -48,24 +51,24 @@ F1FlagsApp::RenderState F1FlagsApp::computeRenderState() const {
   // safety car is out, but showing it then would bury the more important
   // state. kUnknown is treated like "no flag" here rather than blocking the
   // rest of the screen on a status this app doesn't recognise.
-  const MultiViewerClient::Flag flag = client_.trackFlag();
-  if (flag != MultiViewerClient::Flag::kAllClear && flag != MultiViewerClient::Flag::kUnknown) {
+  const mv::Flag flag = snapshot.trackFlag;
+  if (flag != mv::Flag::kAllClear && flag != mv::Flag::kUnknown) {
     state.mode = Mode::kFlag;
     state.a = static_cast<uint32_t>(flag);
     return state;
   }
 
-  if (client_.hasBlueFlag()) {
+  if (snapshot.hasBlueFlag) {
     state.mode = Mode::kBlueFlag;
-    strncpy(state.text, client_.blueFlagTla(), sizeof(state.text) - 1);
+    strncpy(state.text, snapshot.blueFlagTla, sizeof(state.text) - 1);
     state.text[sizeof(state.text) - 1] = '\0';
     return state;
   }
 
-  if (client_.hasLapCount()) {
+  if (snapshot.hasLapCount) {
     state.mode = Mode::kLapCount;
-    state.a = client_.currentLap();
-    state.b = client_.totalLaps();
+    state.a = snapshot.currentLap;
+    state.b = snapshot.totalLaps;
     return state;
   }
 
@@ -80,9 +83,11 @@ bool F1FlagsApp::renderStateEquals(const RenderState &a, const RenderState &b) {
 }
 
 void F1FlagsApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
-  client_.poll(nowMs);
-
-  const RenderState state = computeRenderState();
+  (void)nowMs;
+  // No poll here any more: this runs on the render task, and a poll that
+  // blocked on a socket would stop the panel. The poller has its own task and
+  // leaves its results in the link.
+  const RenderState state = computeRenderState(link_.read());
   if (everRendered_ && renderStateEquals(state, lastRendered_)) return;
 
   render(matrix, state);
@@ -108,17 +113,17 @@ void F1FlagsApp::drawSingleLine(Adafruit_Protomatter &matrix, const char *text, 
 
 namespace {
 
-FlagKind toFlagKind(MultiViewerClient::Flag flag) {
+FlagKind toFlagKind(mv::Flag flag) {
   switch (flag) {
-    case MultiViewerClient::Flag::kYellow:
+    case mv::Flag::kYellow:
       return FlagKind::kYellow;
-    case MultiViewerClient::Flag::kSafetyCar:
+    case mv::Flag::kSafetyCar:
       return FlagKind::kSafetyCar;
-    case MultiViewerClient::Flag::kVirtualSafetyCar:
+    case mv::Flag::kVirtualSafetyCar:
       return FlagKind::kVirtualSafetyCar;
-    case MultiViewerClient::Flag::kRed:
-    case MultiViewerClient::Flag::kAllClear:
-    case MultiViewerClient::Flag::kUnknown:
+    case mv::Flag::kRed:
+    case mv::Flag::kAllClear:
+    case mv::Flag::kUnknown:
       return FlagKind::kRed;  // unreachable for the latter two; see render()
   }
   return FlagKind::kRed;
@@ -142,8 +147,8 @@ void F1FlagsApp::render(Adafruit_Protomatter &matrix, const RenderState &state) 
       drawSingleLine(matrix, "NO SESSION", kBlack, statusColor);
       break;
     case Mode::kFlag: {
-      const auto flag = static_cast<MultiViewerClient::Flag>(state.a);
-      if (flag == MultiViewerClient::Flag::kAllClear || flag == MultiViewerClient::Flag::kUnknown) {
+      const auto flag = static_cast<mv::Flag>(state.a);
+      if (flag == mv::Flag::kAllClear || flag == mv::Flag::kUnknown) {
         // computeRenderState() never selects kFlag for these; unreachable
         // in practice, but fail safe rather than draw something misleading.
         drawSingleLine(matrix, "NO SESSION", kBlack, statusColor);

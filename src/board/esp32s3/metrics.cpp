@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 
+#include "board/esp32s3/exec_tasks.h"
 #include "board/metrics_counters.h"
 
 extern "C" {
@@ -38,6 +39,10 @@ namespace {
 constexpr uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
 Counters counters;
+
+uint32_t stackFree(TaskHandle_t task) {
+  return task != nullptr ? uxTaskGetStackHighWaterMark(task) : 0;
+}
 
 // Read once: changing the CPU frequency at runtime would invalidate every
 // timing already recorded, so the firmware does not.
@@ -86,6 +91,12 @@ Snapshot snapshot() {
 
   out.psramTotal = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
   out.psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+
+  // Null before exec::start() has run, and for any tick this build did not
+  // spawn; uxTaskGetStackHighWaterMark reports bytes on ESP-IDF.
+  out.renderStackFree = stackFree(exec::renderTask());
+  out.netStackFree = stackFree(exec::netTask());
+  out.mvStackFree = stackFree(exec::mvTask());
   return out;
 }
 

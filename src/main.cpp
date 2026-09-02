@@ -1,6 +1,7 @@
 #include <Adafruit_Protomatter.h>
 #include <Client.h>
 
+#include <atomic>
 #include <cstring>
 
 #include "api/api_context.h"
@@ -12,6 +13,7 @@
 #include "board_pins.h"
 
 #include "board/button.h"
+#include "board/exec.h"
 #include "board/metrics.h"
 #include "board/net_link.h"
 #include "board/rtos.h"
@@ -47,7 +49,19 @@ Adafruit_Protomatter matrix(board_pins::kMatrixWidth, board_pins::kMatrixBitDept
 AppScheduler appScheduler(matrix);
 AppSettingsStore appSettingsStore;
 
-bool desiredLedState = false;
+// Raised by housekeeping when DOWN is held, acted on by the network task.
+//
+// CredentialStore and Authenticator are the network task's alone: it pairs, it
+// lists, it revokes, and it authenticates every request against them. The
+// factory reset used to write them straight from the button handler, which was
+// harmless while that was the same task and is a data race now that it is not.
+// A flag hands the work to the owner instead, which needs no lock at all.
+std::atomic<bool> revokeAllRequested{false};
+
+// Written by the render task's drain, read by housekeeping on another core.
+// One bit, and nothing is ordered against it, so an atomic is the whole of
+// what it needs.
+std::atomic<bool> desiredLedState{false};
 
 // Set when a command changed a setting, cleared once it has been written back.
 // The handler used to persist inline; it cannot any more, because at that
@@ -59,7 +73,7 @@ bool settingsDirty = false;
 // reach for nothing else.
 // Which apps exist is the variant's decision; it also tells us whether there
 // is a MultiViewer poll to report on.
-AppRegistry appRegistry{appScheduler, clockSource, nullptr};
+AppRegistry appRegistry{appScheduler, clockSource, nullptr, nullptr};
 
 ApiContext apiContext{credentials,  authenticator,   pairing,
                       clockSource,  appScheduler,    desiredLedState,
@@ -134,7 +148,7 @@ void drainCommands() {
         break;
 
       case Command::Kind::kSetLed:
-        desiredLedState = command.on;
+        desiredLedState.store(command.on, std::memory_order_relaxed);
         break;
     }
   }
@@ -154,7 +168,7 @@ void updateLed() {
     digitalWrite(LED_BUILTIN, millis() / kPairingBlinkMs % 2 == 0 ? HIGH : LOW);
     return;
   }
-  digitalWrite(LED_BUILTIN, desiredLedState ? HIGH : LOW);
+  digitalWrite(LED_BUILTIN, desiredLedState.load(std::memory_order_relaxed) ? HIGH : LOW);
 }
 
 #if METRICS_ENABLED
@@ -182,6 +196,92 @@ void reportMetrics() {
 #else
 void reportMetrics() {}
 #endif  // METRICS_ENABLED
+
+// ---------------------------------------------------------------------------
+// The four jobs
+//
+// Same code on both boards. The M4 runs them in turn, so each waits for the
+// last and a slow poll stalls the panel -- accepted, and unchanged from what
+// it always did. The S3 runs the first three as pinned tasks, so it does not.
+// Which happens is board/exec.h's decision; see docs/concurrency.md for who
+// owns what once they run at once.
+// ---------------------------------------------------------------------------
+
+// Owns the display and every app, and is the only writer of app state.
+void renderTick(uint32_t nowMs) {
+  // First, so a mutation queued since the last pass is in effect before
+  // anything draws with it.
+  drainCommands();
+  appScheduler.update(nowMs);
+}
+
+// Accepts and serves one request. Blocks as much as it likes: on the S3
+// nothing waits for it, and on the M4 this is where the wait always was.
+void netTick(uint32_t nowMs) {
+  (void)nowMs;
+
+  // Housekeeping saw the button; doing the work here keeps every write to the
+  // credential store on one task.
+  if (revokeAllRequested.exchange(false, std::memory_order_relaxed)) {
+    if (credentials.clear()) {
+      authenticator.forgetAll();
+      Serial.println(F("[creds] all clients revoked"));
+    } else {
+      Serial.println(F("[creds] nothing to revoke"));
+    }
+  }
+
+  if (net_link::maintain()) {
+    // The listening socket does not survive a reconnect on every board, and
+    // maintain() reports the edge so it can be rebound.
+    net_link::serveHttp(80);
+  }
+
+  Client *client = net_link::accept();
+  if (client == nullptr) return;
+
+  // Timed around the work only: the flush finishRequest() does is a fixed cost
+  // that would otherwise swamp the numbers it is meant to expose. Cycles rather
+  // than micros() so the whole thing folds away when metrics are compiled out.
+  const uint32_t requestStartCycles = metrics::cycles();
+  serveClient(*client);
+  metrics::recordRequest(metrics::cycles() - requestStartCycles);
+
+  net_link::finishRequest();
+}
+
+// Polls MultiViewer, if this build has an app that wants one. The variant
+// supplies it, so a build with no F1 app links no transport and this is null.
+void mvTick(uint32_t nowMs) {
+  if (appRegistry.mvPoll != nullptr) appRegistry.mvPoll(nowMs);
+}
+
+// Buttons, pairing, the LED, clock upkeep. Cheap, periodic, and holds nothing
+// anyone else is waiting for.
+void housekeepTick(uint32_t nowMs) {
+  buttonUp.poll();
+  buttonDown.poll();
+
+  if (buttonUp.takePress()) {
+    pairing.open();
+    Serial.print(F("[pair] window open for "));
+    Serial.print(PairingWindow::kWindowMs / 1000);
+    Serial.println(F("s"));
+  }
+
+  // Handed to the network task rather than done here; see revokeAllRequested.
+  if (buttonDown.takeHold(kFactoryResetHoldMs)) {
+    revokeAllRequested.store(true, std::memory_order_relaxed);
+  }
+
+  clockSource.maintain();
+  updateLed();
+  metrics::tick();
+  reportMetrics();
+  (void)nowMs;
+}
+
+constexpr exec::Ticks kTicks{renderTick, netTick, mvTick, housekeepTick};
 
 }  // namespace
 
@@ -230,51 +330,14 @@ void setup() {
 
   net_link::serveHttp(80);
   Serial.println(F("Press UP to open a 60s pairing window; hold DOWN 5s to revoke all clients."));
+
+  // Last: a task started here may run before the next statement does, so
+  // everything the ticks touch has to be up already.
+  exec::start(kTicks);
 }
+
 
 void loop() {
   metrics::markLoop();
-
-  // First, so a mutation posted by the request served at the end of the
-  // previous pass is in effect before anything reads app state this pass.
-  drainCommands();
-
-  buttonUp.poll();
-  buttonDown.poll();
-
-  if (buttonUp.takePress()) {
-    pairing.open();
-    Serial.print(F("[pair] window open for "));
-    Serial.print(PairingWindow::kWindowMs / 1000);
-    Serial.println(F("s"));
-  }
-
-  if (buttonDown.takeHold(kFactoryResetHoldMs)) {
-    if (credentials.clear()) {
-      authenticator.forgetAll();
-      Serial.println(F("[creds] all clients revoked"));
-    } else {
-      Serial.println(F("[creds] nothing to revoke"));
-    }
-  }
-
-  net_link::maintain();
-
-  clockSource.maintain();
-  appScheduler.update(millis());
-  updateLed();
-  metrics::tick();
-  reportMetrics();
-
-  Client *client = net_link::accept();
-  if (client == nullptr) return;
-
-  // Timed around the work only: the flush finishRequest() does is a fixed cost
-  // that would otherwise swamp the numbers it is meant to expose. Cycles rather
-  // than micros() so the whole thing folds away when metrics are compiled out.
-  const uint32_t requestStartCycles = metrics::cycles();
-  serveClient(*client);
-  metrics::recordRequest(metrics::cycles() - requestStartCycles);
-
-  net_link::finishRequest();
+  exec::tick(kTicks, millis());
 }
