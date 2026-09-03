@@ -5,13 +5,17 @@
 
 #include "api/websocket.h"
 #include "board/net_link.h"
+#include "board/rtos.h"
 
 // The open WebSocket connections, and the only thing that touches them.
 //
-// Owned solely by the network task. Nothing else reads or writes a connection:
-// broadcasts are handed here and sent from the same task that reads, so there
-// is no lock and no half-written frame. That is the rule phase 5.2 has to
-// respect when it starts fanning events out.
+// Serviced by one task and only one: wsTick reads frames, answers pings and
+// sends broadcasts, so no frame is ever half-written by two writers.
+//
+// The exception is adopt(), which is called by the network task when a request
+// upgrades -- the upgrade arrives as HTTP, and HTTP is that task's. So the
+// connection table is guarded. The lock is held for the length of a table
+// scan and a non-blocking socket read, never across anything that waits.
 //
 // Small on purpose. Four connections, one partial frame each, no
 // fragmentation, no extensions. A browser tab and a couple of tools is what
@@ -69,6 +73,9 @@ class WsHub {
 
   MessageHandler handler_;
   void *user_;
+  // Guards connections_. See the note above: adopt() runs on the network task,
+  // everything else on the WebSocket task.
+  rtos::Mutex mutex_;
   Connection connections_[kMaxConnections] = {};
   bool initialised_ = false;
   uint32_t messagesReceived_ = 0;

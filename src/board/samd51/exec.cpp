@@ -15,6 +15,7 @@ void tick(const Ticks &ticks, uint32_t nowMs) {
   if (ticks.render != nullptr) ticks.render(nowMs);
   if (ticks.housekeep != nullptr) ticks.housekeep(nowMs);
   if (ticks.mv != nullptr) ticks.mv(nowMs);
+  if (ticks.ws != nullptr) ticks.ws(nowMs);
   if (ticks.net != nullptr) ticks.net(nowMs);
 }
 

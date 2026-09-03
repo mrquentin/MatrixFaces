@@ -29,14 +29,19 @@ namespace {
 constexpr uint32_t kRenderStack = 12288;
 constexpr uint32_t kNetStack = 12288;
 constexpr uint32_t kMvStack = 8192;
+// Smaller than the others: it reads short frames into a buffer the hub already
+// owns and serialises small JSON. Reported at /api/metrics like the rest.
+constexpr uint32_t kWsStack = 6144;
 
 constexpr UBaseType_t kRenderPriority = 2;
 constexpr UBaseType_t kNetPriority = 1;
 constexpr UBaseType_t kMvPriority = 1;
+constexpr UBaseType_t kWsPriority = 1;
 
 constexpr BaseType_t kRenderCore = 1;
 constexpr BaseType_t kNetCore = 0;
 constexpr BaseType_t kMvCore = 0;
+constexpr BaseType_t kWsCore = 0;
 
 // Every task is the same shape: call one tick forever. The delay is not
 // pacing -- the ticks do their own -- it is what lets the idle task run.
@@ -55,6 +60,7 @@ constexpr BaseType_t kMvCore = 0;
 TaskHandle_t g_render = nullptr;
 TaskHandle_t g_net = nullptr;
 TaskHandle_t g_mv = nullptr;
+TaskHandle_t g_ws = nullptr;
 
 void spawn(void (*tick)(uint32_t), const char *name, uint32_t stack, UBaseType_t priority,
            BaseType_t core, TaskHandle_t *out) {
@@ -69,6 +75,7 @@ void start(const Ticks &ticks) {
   spawn(ticks.render, "render", kRenderStack, kRenderPriority, kRenderCore, &g_render);
   spawn(ticks.net, "net", kNetStack, kNetPriority, kNetCore, &g_net);
   spawn(ticks.mv, "mv", kMvStack, kMvPriority, kMvCore, &g_mv);
+  spawn(ticks.ws, "ws", kWsStack, kWsPriority, kWsCore, &g_ws);
 }
 
 // Housekeeping stays on the Arduino loop task, which runs on core 1 alongside
@@ -83,5 +90,6 @@ void tick(const Ticks &ticks, uint32_t nowMs) {
 TaskHandle_t renderTask() { return g_render; }
 TaskHandle_t netTask() { return g_net; }
 TaskHandle_t mvTask() { return g_mv; }
+TaskHandle_t wsTask() { return g_ws; }
 
 }  // namespace exec

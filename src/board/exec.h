@@ -25,6 +25,12 @@ struct Ticks {
   void (*render)(uint32_t nowMs);
   // Accepts and serves HTTP. Blocks freely; nothing waits on it.
   void (*net)(uint32_t nowMs);
+  // Services open WebSocket connections and delivers events to them. Separate
+  // from `net` because serving one HTTP request means blocking on that
+  // client's socket, and a browser holding a WebSocket open should not go
+  // quiet because someone else is uploading slowly -- or trickling a byte a
+  // second on purpose. May be null on a board that holds no connections.
+  void (*ws)(uint32_t nowMs);
   // Polls MultiViewer. May be null when the build has no app that wants one.
   void (*mv)(uint32_t nowMs);
   // Buttons, pairing, LED, clock upkeep. Cheap and periodic.
