@@ -321,10 +321,6 @@ void netTick(uint32_t nowMs) {
     net_link::serveHttp(80);
   }
 
-  // Before accepting: an open socket that already has a message waiting
-  // should not sit behind a new connection's whole request-response.
-  wsHub.poll();
-  broadcastEvents();
 
   Client *client = net_link::accept();
   if (client == nullptr) return;
@@ -380,7 +376,20 @@ void housekeepTick(uint32_t nowMs) {
   reportMetrics();
 }
 
-constexpr exec::Ticks kTicks{renderTick, netTick, mvTick, housekeepTick};
+// Services open WebSocket connections and delivers events to them.
+//
+// Its own tick, not part of netTick, because serving one HTTP request means
+// blocking on that client's socket -- and a browser holding a socket open
+// should not go quiet because someone else is uploading slowly. On the S3 that
+// makes it a task of its own; on the M4 it is one more call in the sequence,
+// with the same blocking the rest of that board has.
+void wsTick(uint32_t nowMs) {
+  (void)nowMs;
+  broadcastEvents();
+  wsHub.poll();
+}
+
+constexpr exec::Ticks kTicks{renderTick, netTick, wsTick, mvTick, housekeepTick};
 
 }  // namespace
 

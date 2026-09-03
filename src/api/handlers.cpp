@@ -579,6 +579,7 @@ void handleMetrics(Client &client, const HttpRequest &, const char *, ApiContext
     tasks["render"] = m.renderStackFree;
     tasks["net"] = m.netStackFree;
     tasks["mv"] = m.mvStackFree;
+    tasks["ws"] = m.wsStackFree;
   }
 
   // Omitted rather than reported as zero on a board with no external RAM, so

@@ -109,6 +109,7 @@ Snapshot snapshot() {
   out.renderStackFree = stackFree(exec::renderTask());
   out.netStackFree = stackFree(exec::netTask());
   out.mvStackFree = stackFree(exec::mvTask());
+  out.wsStackFree = stackFree(exec::wsTask());
   return out;
 }
 

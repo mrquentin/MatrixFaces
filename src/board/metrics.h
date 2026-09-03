@@ -86,6 +86,7 @@ struct Snapshot {
   uint32_t renderStackFree;
   uint32_t netStackFree;
   uint32_t mvStackFree;
+  uint32_t wsStackFree;
 };
 
 // Totals main.cpp owns, handed in rather than reached for: metrics is a board

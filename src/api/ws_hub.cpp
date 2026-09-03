@@ -16,6 +16,8 @@ constexpr uint16_t kCloseTooBig = 1009;
 bool WsHub::adopt(int8_t slot) {
   if (slot < 0) return false;
 
+  rtos::LockGuard guard(mutex_);
+
   // Connection is a plain aggregate so the table can be zero-initialised, but
   // zero is a valid slot index -- so the free marker has to be written once
   // rather than assumed.
@@ -131,6 +133,7 @@ bool WsHub::drainFrames(Connection &connection) {
 }
 
 void WsHub::poll() {
+  rtos::LockGuard guard(mutex_);
   for (Connection &connection : connections_) {
     if (connection.slot < 0) continue;
 
@@ -164,6 +167,8 @@ void WsHub::poll() {
 
 void WsHub::broadcast(const char *text, size_t len) {
   if (text == nullptr || len == 0) return;
+
+  rtos::LockGuard guard(mutex_);
 
   uint8_t header[ws::kMaxServerHeader];
   const size_t headerLen = ws::encodeHeader(header, sizeof(header), ws::Opcode::kText, len);

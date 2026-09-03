@@ -11,6 +11,7 @@ it nothing, and because a rule only one board honours is a rule nobody checks.
 |---|---|---|
 | `renderTick` | task, core 1, 12 KB | in turn |
 | `netTick` | task, core 0, 12 KB | in turn |
+| `wsTick` | task, core 0, 6 KB | in turn |
 | `mvTick` | task, core 0, 8 KB | in turn |
 | `housekeepTick` | Arduino loop task, core 1 | in turn |
 
@@ -108,11 +109,13 @@ everything.
   drain on the render task and the zone changes about never, so this is a
   narrow window rather than a live bug — but it is the last unguarded pair and
   should get a mutex or an atomic snapshot.
-- **`netTick` serves one connection at a time.** A hostile client blocks all
-  HTTP for as long as the request timeout allows — measured at ~4s per
-  connection, and a client that reconnects immediately can hold it
-  indefinitely. Rendering is unaffected, which is the point, but phase 5.1
-  turns `netTick` into a non-blocking multiplex and should fix this too.
+- **`netTick` still serves one HTTP connection at a time.** A hostile client
+  can hold *HTTP* indefinitely — ~4s per connection, reconnecting immediately.
+  What that no longer affects is anything else: rendering has its own core, and
+  since the WebSocket moved to `wsTick` an open socket keeps receiving events
+  throughout (measured: eight events at exact 2s intervals during a 25s block).
+  Making HTTP itself concurrent needs a non-blocking request parser, which is a
+  rewrite of `http_request` rather than a rearrangement, and has not been done.
 
 ## The seam
 

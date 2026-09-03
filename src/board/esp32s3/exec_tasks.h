@@ -12,5 +12,6 @@ namespace exec {
 TaskHandle_t renderTask();
 TaskHandle_t netTask();
 TaskHandle_t mvTask();
+TaskHandle_t wsTask();
 
 }  // namespace exec
