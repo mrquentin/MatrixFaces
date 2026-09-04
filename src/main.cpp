@@ -1,4 +1,3 @@
-#include <Adafruit_Protomatter.h>
 #include <ArduinoJson.h>
 #include <Client.h>
 
@@ -11,9 +10,11 @@
 #include "api/ws_hub.h"
 #include "apps/app_settings_store.h"
 #include "storage/quiet_timer.h"
-// Unqualified on purpose: -Isrc/board/<target> decides whose pin table this
-// is, which is the rule that keeps the board out of the composition root.
+// Unqualified on purpose: -Isrc/board/<target> decides whose pin table and
+// whose matrix driver these are, which is the rule that keeps the board out
+// of the composition root.
 #include "board_pins.h"
+#include "matrix_gfx.h"
 
 #include "board/button.h"
 #include "board/exec.h"
@@ -45,10 +46,7 @@ Button buttonDown;
 // depth all come from the board -- the last of those because how many
 // bitplanes a board can drive without visible artefacts is a property of its
 // refresh engine, not of the apps.
-Adafruit_Protomatter matrix(board_pins::kMatrixWidth, board_pins::kMatrixBitDepth, 1,
-                            board_pins::kMatrixRgb, board_pins::kMatrixAddrPins,
-                            board_pins::kMatrixAddr, board_pins::kMatrixClock,
-                            board_pins::kMatrixLatch, board_pins::kMatrixOe, true);
+MatrixGfx &matrix = matrixInstance();
 AppScheduler appScheduler(matrix);
 AppSettingsStore appSettingsStore;
 
@@ -421,9 +419,9 @@ void setup() {
   apiContext.mvCounters = appRegistry.mvCounters;
   apiContext.wsHub = &wsHub;
   appSettingsStore.begin(appScheduler);
-  const ProtomatterStatus matrixStatus = appScheduler.begin();
-  if (matrixStatus != PROTOMATTER_OK) {
-    Serial.print(F("Protomatter begin() failed, status="));
+  const MatrixBeginStatus matrixStatus = appScheduler.begin();
+  if (matrixStatus != kMatrixBeginOk) {
+    Serial.print(F("Matrix begin() failed, status="));
     Serial.println(static_cast<int>(matrixStatus));
     haltBlinking(F("Halting: matrix init failed"));
   }

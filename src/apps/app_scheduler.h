@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include <Adafruit_Protomatter.h>
+#include "matrix_gfx.h"
 
 #include "app.h"
 
@@ -13,15 +13,15 @@ class AppScheduler {
  public:
   static constexpr uint8_t kMaxApps = 8;
 
-  explicit AppScheduler(Adafruit_Protomatter &matrix) : matrix_(matrix) {}
+  explicit AppScheduler(MatrixGfx &matrix) : matrix_(matrix) {}
 
   // Registers an app as a candidate for switchTo(). Returns false once
   // kMaxApps registrations have been made.
   bool add(App &app);
 
   // Brings up the matrix hardware and starts the first registered app.
-  // Returns the underlying Protomatter status so main() can halt on failure.
-  ProtomatterStatus begin();
+  // Returns the underlying matrix begin() status so main() can halt on failure.
+  MatrixBeginStatus begin();
 
   // Switches the active app by registration index, blanking the matrix
   // first. No-op if index is out of range or already active.
@@ -54,7 +54,7 @@ class AppScheduler {
   const SettingsBag *bagFor(uint8_t appIndex) const;
   SettingsBag *bagFor(uint8_t appIndex);
 
-  Adafruit_Protomatter &matrix_;
+  MatrixGfx &matrix_;
   App *apps_[kMaxApps] = {};
   uint8_t count_ = 0;
   uint8_t activeIndex_ = 0;

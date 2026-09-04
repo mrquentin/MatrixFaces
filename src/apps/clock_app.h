@@ -22,8 +22,8 @@ class ClockApp : public App {
   explicit ClockApp(TimeSource &clock);
 
   const char *name() const override { return "clock"; }
-  void begin(Adafruit_Protomatter &matrix) override;
-  void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
+  void begin(MatrixGfx &matrix) override;
+  void update(MatrixGfx &matrix, uint32_t nowMs) override;
 
   SettingsBag *settings() override { return &settings_; }
   void onSettingChanged(const char *key) override;

@@ -8,6 +8,18 @@ changes. All three are in the **ESP32-S3 backend**; the SAMD51 path is
 byte-for-byte upstream, and the one change that touches shared code
 (`core.c`) is behind a macro only this backend defines.
 
+## Status
+
+As of bd matrix-faces-sjz, the MatrixPortal S3 no longer uses this driver:
+it moved to ESP32-HUB75-MatrixPanel-DMA's continuous DMA, which paces
+OE/latch/row-select from hardware descriptor timing instead of a per-row
+timer ISR, and so has no per-row ISR left for the mechanism below to delay.
+The three changes and the "Known remaining issue" stay documented here as
+the record of what was tried and measured, and because the M4 still runs
+this exact vendored copy permanently -- but nothing on the S3 exercises the
+ESP32-S3 backend below anymore. There is no equivalent of `env:s3_diag` for
+the new driver: it has no ISR to instrument the same way.
+
 ## Why
 
 The MatrixPortal S3 showed rows flashing brighter than the frame contained,

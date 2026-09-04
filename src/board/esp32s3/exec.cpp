@@ -8,12 +8,15 @@
 
 // Three tasks, plus the Arduino loop task for housekeeping.
 //
-// Core 1 runs rendering and nothing else the firmware creates. Protomatter's
-// row interrupt is allocated there by matrix.begin(), and every show() has to
-// happen on the same task that owns the panel, so this is the core the display
-// gets. Core 0 takes everything that can block: HTTP, and the MultiViewer
-// poll. lwIP's TCP/IP task is already pinned there, so network work stays
-// together and off the display's core.
+// Core 1 runs rendering and nothing else the firmware creates. MatrixGfx is
+// not thread-safe, so every show() still has to come from the task that
+// owns it -- previously a hard requirement, since Protomatter's row
+// interrupt was allocated on whichever core called matrix.begin(); the
+// continuous-DMA driver now in use (bd matrix-faces-sjz) has no such
+// interrupt, so this is a self-imposed rule rather than a forced one. Core 0
+// takes everything that can block: HTTP, and the MultiViewer poll. lwIP's
+// TCP/IP task is already pinned there, so network work stays together and
+// off the display's core.
 //
 // The stack sizes come from the plan and are checked rather than trusted:
 // /api/metrics reports each task's high-water mark, so an undersized one shows

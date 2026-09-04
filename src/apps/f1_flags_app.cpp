@@ -15,7 +15,7 @@ void F1FlagsApp::onSettingChanged(const char *) {
   everRendered_ = false;  // force a redraw; connection state just reset
 }
 
-void F1FlagsApp::begin(Adafruit_Protomatter &matrix) {
+void F1FlagsApp::begin(MatrixGfx &matrix) {
   (void)matrix;
   // Forces an immediate redraw on the next update(), same reasoning as
   // ClockApp/TextApp: switching back to this app should repaint right away.
@@ -82,7 +82,7 @@ bool F1FlagsApp::renderStateEquals(const RenderState &a, const RenderState &b) {
   return a.mode == b.mode && a.a == b.a && a.b == b.b && strcmp(a.text, b.text) == 0;
 }
 
-void F1FlagsApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
+void F1FlagsApp::update(MatrixGfx &matrix, uint32_t nowMs) {
   (void)nowMs;
   // No poll here any more: this runs on the render task, and a poll that
   // blocked on a socket would stop the panel. The poller has its own task and
@@ -95,7 +95,7 @@ void F1FlagsApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
   everRendered_ = true;
 }
 
-void F1FlagsApp::drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg) {
+void F1FlagsApp::drawSingleLine(MatrixGfx &matrix, const char *text, uint16_t bg, uint16_t fg) {
   matrix.fillScreen(bg);
   matrix.setTextSize(fitTextSize(matrix, text, kMaxTextSize, matrix.width() - 4));
   matrix.setTextColor(fg);
@@ -131,7 +131,7 @@ FlagKind toFlagKind(mv::Flag flag) {
 
 }  // namespace
 
-void F1FlagsApp::render(Adafruit_Protomatter &matrix, const RenderState &state) {
+void F1FlagsApp::render(MatrixGfx &matrix, const RenderState &state) {
   constexpr uint16_t kBlack = 0;
   const uint16_t statusColor = matrix.color565(160, 160, 160);
 
