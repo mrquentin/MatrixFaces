@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <fcntl.h>
+#include <lwip/netdb.h>
+#include <lwip/sockets.h>
 
 #include <cstring>
 
@@ -22,10 +25,101 @@ namespace {
 constexpr uint32_t kConnectPollMs = 250;
 constexpr uint32_t kStalledReportMs = 5000;
 
-// Constructed at file scope like any other Arduino sketch global; the port is
-// fixed at construction, so serveHttp() only starts it listening.
-WiFiServer g_server(80);
+// Own the listening socket with raw BSD calls instead of WiFiServer, whose
+// available()/accept() (framework-arduinoespressif32's
+// libraries/WiFi/src/WiFiServer.cpp) leaks the accepted file descriptor
+// whenever either setsockopt() call after lwip_accept() fails. That happens
+// whenever the peer has already reset the connection in the gap between
+// accept() and setsockopt() -- exactly what a burst of short-timeout
+// concurrent clients produces against a server that drains one connection
+// at a time. CONFIG_LWIP_MAX_SOCKETS is 16 on this board; a few dozen such
+// leaks under load exhausts the whole socket pool and wedges every socket,
+// not just this one, until reboot. Measured: bd matrix-faces-e5c.
+//
+// WiFiServer offers no way to fix just the accept path -- its listen fd is
+// a private member -- so the listen socket is owned here directly instead,
+// duplicating the handful of raw-socket calls WiFiServer::begin()/
+// available() make, with the one difference that matters: the accepted
+// socket is closed on any setsockopt() failure rather than dropped.
+constexpr uint16_t kHttpPort = 80;
+constexpr int kListenBacklog = 8;
+
+int g_listenFd = -1;
 bool g_serving = false;
+
+void closeListenSocket() {
+  if (g_listenFd < 0) return;
+  lwip_close(g_listenFd);
+  g_listenFd = -1;
+}
+
+void openListenSocket() {
+  closeListenSocket();
+
+  const int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return;
+
+  int enable = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+
+  struct sockaddr_in addr {};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(kHttpPort);
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0 ||
+      listen(fd, kListenBacklog) < 0) {
+    lwip_close(fd);
+    return;
+  }
+  fcntl(fd, F_SETFL, O_NONBLOCK);
+  g_listenFd = fd;
+}
+
+// The fixed equivalent of WiFiServer::available(): closes the accepted
+// socket on any setsockopt() failure instead of leaking the fd.
+//
+// Also recycles the listen socket itself on a timer, independent of
+// whether it looks unhealthy. Measured (bd matrix-faces-e5c): under a burst
+// of concurrent short-lived connections against this single-connection-at-
+// a-time server, the listen socket can stop producing acceptable
+// connections at all -- lwip_accept() returns EAGAIN indefinitely even
+// though the general socket pool still has headroom (checked with a
+// throwaway socket() call, which kept succeeding) and the WiFi link and
+// every FreeRTOS task stay healthy. The exact lwIP-internal mechanism was
+// not pinned down further, but recycling the listener -- the same
+// close()+reopen restartServer() already does after a WiFi reconnect --
+// reliably clears it well inside the interval below, where previously only
+// a reboot did.
+constexpr uint32_t kRecycleIntervalMs = 30000;
+
+WiFiClient acceptClient() {
+  if (g_listenFd < 0) return WiFiClient();
+
+  static uint32_t lastRecycleMs = 0;
+  const uint32_t now = millis();
+  if (now - lastRecycleMs > kRecycleIntervalMs) {
+    lastRecycleMs = now;
+    openListenSocket();
+  }
+
+  struct sockaddr_in clientAddr {};
+  socklen_t clientLen = sizeof(clientAddr);
+  const int clientSock =
+      lwip_accept(g_listenFd, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientLen);
+  if (clientSock < 0) return WiFiClient();
+
+  // TCP_NODELAY unconditionally: small responses otherwise wait on Nagle for
+  // an ACK that is not coming -- the M4's NINA firmware does not batch
+  // writes this way, but every S3 response benefits the same way regardless
+  // of who called serveHttp().
+  int enable = 1;
+  if (setsockopt(clientSock, SOL_SOCKET, SO_KEEPALIVE, &enable, sizeof(enable)) == 0 &&
+      setsockopt(clientSock, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable)) == 0) {
+    return WiFiClient(clientSock);
+  }
+  lwip_close(clientSock);
+  return WiFiClient();
+}
 
 // The connection accept() last handed out. One at a time: loop() serves a
 // request to completion before taking the next.
@@ -96,9 +190,7 @@ void connect() {
 // behaviour identical rather than subtly different.
 void restartServer() {
   if (!g_serving) return;
-  g_server.end();
-  g_server.begin();
-  g_server.setNoDelay(true);
+  openListenSocket();
 }
 
 }  // namespace
@@ -153,16 +245,13 @@ const char *ssid() {
 }
 
 void serveHttp(uint16_t port) {
-  (void)port;  // fixed at construction; see g_server
-  g_server.begin();
-  // Small responses otherwise wait on Nagle for an ACK that is not coming;
-  // the M4's NINA firmware does not batch writes this way.
-  g_server.setNoDelay(true);
+  (void)port;  // fixed; see kHttpPort
+  openListenSocket();
   g_serving = true;
 }
 
 Client *accept() {
-  g_request = g_server.accept();
+  g_request = acceptClient();
   return g_request ? &g_request : nullptr;
 }
 
