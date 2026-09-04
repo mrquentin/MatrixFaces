@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Adafruit_Protomatter.h>
+#include "matrix_gfx.h"
 
 #include <cstdint>
 
@@ -18,7 +18,7 @@ enum class FlagKind : uint8_t {
 // maxWidth x maxHeight, so a label always uses as much of its allotted space
 // as legible without overflowing it. maxHeight defaults to "no constraint"
 // for single-line, full-panel-width callers that don't need one.
-uint8_t fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxSize, int16_t maxWidth,
+uint8_t fitTextSize(MatrixGfx &matrix, const char *text, uint8_t maxSize, int16_t maxWidth,
                     int16_t maxHeight = INT16_MAX);
 
 // Draws one flag full-screen, dimmed to 20% brightness (this firmware has no
@@ -31,4 +31,4 @@ uint8_t fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxS
 // Blue gets the same centered-label treatment using `driverTla` (which
 // driver it's for) in place of a static label; pass nullptr for every
 // other kind.
-void drawFlag(Adafruit_Protomatter &matrix, FlagKind kind, const char *driverTla);
+void drawFlag(MatrixGfx &matrix, FlagKind kind, const char *driverTla);

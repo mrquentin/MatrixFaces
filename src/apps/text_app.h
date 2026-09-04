@@ -16,8 +16,8 @@ class TextApp : public App {
   TextApp();
 
   const char *name() const override { return "text"; }
-  void begin(Adafruit_Protomatter &matrix) override;
-  void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
+  void begin(MatrixGfx &matrix) override;
+  void update(MatrixGfx &matrix, uint32_t nowMs) override;
 
   SettingsBag *settings() override { return &settings_; }
   void onSettingChanged(const char *key) override;
@@ -26,8 +26,8 @@ class TextApp : public App {
   static constexpr uint32_t kScrollIntervalMs = 30;  // 1px/frame, ~33px/s
 
   // Recomputes bounds and scroll-vs-static mode from the current text/size.
-  void layout(Adafruit_Protomatter &matrix);
-  void draw(Adafruit_Protomatter &matrix, int16_t x, int16_t y);
+  void layout(MatrixGfx &matrix);
+  void draw(MatrixGfx &matrix, int16_t x, int16_t y);
 
   char text_[kTextCap] = "Hello!";
   int32_t size_ = 1;

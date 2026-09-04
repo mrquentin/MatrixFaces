@@ -36,7 +36,7 @@ uint8_t dim(uint8_t channel) { return static_cast<uint8_t>(channel * kBrightness
 
 }  // namespace
 
-uint8_t fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxSize, int16_t maxWidth,
+uint8_t fitTextSize(MatrixGfx &matrix, const char *text, uint8_t maxSize, int16_t maxWidth,
                     int16_t maxHeight) {
   for (uint8_t size = maxSize; size >= 1; size--) {
     matrix.setTextSize(size);
@@ -50,7 +50,7 @@ uint8_t fitTextSize(Adafruit_Protomatter &matrix, const char *text, uint8_t maxS
   return 1;
 }
 
-void drawFlag(Adafruit_Protomatter &matrix, FlagKind kind, const char *driverTla) {
+void drawFlag(MatrixGfx &matrix, FlagKind kind, const char *driverTla) {
   const FlagStyle style = styleFor(kind);
 
   // Blue has no static label of its own -- the driver it's for stands in

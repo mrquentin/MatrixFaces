@@ -25,14 +25,14 @@ void TextApp::onSettingChanged(const char *key) {
   needsLayout_ = true;
 }
 
-void TextApp::begin(Adafruit_Protomatter &matrix) {
+void TextApp::begin(MatrixGfx &matrix) {
   (void)matrix;
   // Forces layout() to run on the very next update(), same reasoning as
   // ClockApp: switching back to this app should repaint immediately.
   needsLayout_ = true;
 }
 
-void TextApp::layout(Adafruit_Protomatter &matrix) {
+void TextApp::layout(MatrixGfx &matrix) {
   matrix.setTextWrap(false);  // required for text to scroll off the edge
   matrix.setTextSize(static_cast<uint8_t>(size_));
 
@@ -59,7 +59,7 @@ void TextApp::layout(Adafruit_Protomatter &matrix) {
   lastFrameMs_ = 0;  // forces an immediate redraw on the next update()
 }
 
-void TextApp::draw(Adafruit_Protomatter &matrix, int16_t x, int16_t y) {
+void TextApp::draw(MatrixGfx &matrix, int16_t x, int16_t y) {
   matrix.fillScreen(0);
   matrix.setCursor(x, y);
   matrix.setTextColor(matrix.color565(static_cast<uint8_t>((colorRgb_ >> 16) & 0xFF),
@@ -69,7 +69,7 @@ void TextApp::draw(Adafruit_Protomatter &matrix, int16_t x, int16_t y) {
   matrix.show();
 }
 
-void TextApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
+void TextApp::update(MatrixGfx &matrix, uint32_t nowMs) {
   if (needsLayout_) {
     layout(matrix);
     needsLayout_ = false;

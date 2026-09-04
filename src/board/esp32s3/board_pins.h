@@ -40,16 +40,17 @@ constexpr uint8_t kMatrixOe = 14;
 constexpr uint16_t kMatrixWidth = 128;
 constexpr uint8_t kMatrixAddrPins = 5;
 
-// Bitplanes per colour channel. Matches the M4's, but it lives here rather
-// than in main.cpp because it is a refresh-timing budget as much as a colour
-// choice, and the two boards refresh very differently: the S3 drives the panel
-// over LCD_CAM DMA with no end-of-transfer interrupt, so Protomatter has to
-// *estimate* each scanline's on-time from a measurement taken while it sets
-// the transfer up.
+// Bitplanes per colour channel. Matches the M4's. Tuned during bring-up
+// against Adafruit_Protomatter, whose S3 backend had to *estimate* each
+// scanline's on-time (no end-of-transfer interrupt on that path) -- dropping
+// to 3 was tried against the artefact that estimation caused and made no
+// difference, so the cost was not worth paying.
 //
-// Dropping to 3 was tried during bring-up against the artefact this board
-// shows when a frame is converted, and made no difference -- so the cost is
-// not worth paying, and the knob is documented here rather than spent.
+// This board has since moved to a continuous-DMA driver (matrix_gfx.h, bd
+// matrix-faces-sjz) that reads this same value as its pixel_color_depth_bits
+// -- same semantic concept, BCM bits of intensity resolution per channel,
+// under a different name. The value itself was never about either driver;
+// it stays 4 because that is still the tradeoff this panel was tuned for.
 constexpr uint8_t kMatrixBitDepth = 4;
 
 }  // namespace board_pins

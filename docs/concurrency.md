@@ -15,9 +15,14 @@ it nothing, and because a rule only one board honours is a rule nobody checks.
 | `mvTick` | task, core 0, 8 KB | in turn |
 | `housekeepTick` | Arduino loop task, core 1 | in turn |
 
-Core 1 is the display's. Protomatter's row interrupt is allocated there by
-`matrix.begin()`, and every `show()` has to come from the task that owns the
-panel. Core 0 takes everything that can block, alongside lwIP's own task.
+Core 1 is the display's. Rendering and `show()` still have to come from one
+task, since `MatrixGfx` is not thread-safe -- Protomatter's row interrupt
+used to force that task onto a specific core (`matrix.begin()` allocates it
+there), but the S3 moved to a continuous-DMA driver with no such interrupt
+(bd matrix-faces-sjz), so that particular constraint no longer applies. The
+task still lives on core 1 because nothing forces it to move, not because
+anything still requires it there. Core 0 takes everything that can block,
+alongside lwIP's own task.
 
 What that buys, measured with `mv_mock.py --delay 2` so a poll takes two
 seconds: HTTP latency of **314 ms median on the S3 against 2063 ms on the M4**,
@@ -146,15 +151,20 @@ with the code that uses it. The ring buffer it will need already exists.
 ## Constraints the S3 imposes on 4.2
 
 Measured, not assumed, while chasing the display artefact in
-`lib/Adafruit_Protomatter/FORK.md`:
+`lib/Adafruit_Protomatter/FORK.md`. The first still holds for any board; the
+other two were specific to Adafruit_Protomatter's per-row timer ISR, which
+the S3 no longer runs (bd matrix-faces-sjz) -- kept here as the reasoning
+that shaped 4.2's task split, not as live constraints:
 
 - **A task on core 0 must yield.** `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0`
   is set in the Arduino core's sdkconfig and CPU1's equivalent is not, so a
   loop that never blocks on core 0 panics the board within seconds. Moving the
   network task there means giving the idle task air.
-- **Dedicating a core to rendering does not improve display timing.** It was
-  tried and measured: no change. Split the tasks for the reasons in the plan —
-  a poll or a slow client must not stall the panel — but do not expect the
-  artefact to move, and re-measure with `env:s3_diag` rather than guessing.
-- **Protomatter's row interrupt runs at level 3.** Anything else that wants a
-  high-priority interrupt on the S3 has to coexist with it.
+- **Dedicating a core to rendering did not improve display timing under
+  Protomatter.** It was tried and measured: no change. Split the tasks for
+  the reasons in the plan -- a poll or a slow client must not stall the
+  panel -- not for this; the continuous-DMA driver now in use has no
+  per-row timing for a busy core to threaten in the first place.
+- **Protomatter's row interrupt ran at level 3**, which meant anything else
+  wanting a high-priority interrupt on the S3 had to coexist with it. Moot
+  now that the S3 has no per-row interrupt at all.

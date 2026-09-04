@@ -21,7 +21,7 @@ void ClockApp::onSettingChanged(const char *key) {
   lastPolledMs_ = 0;  // and don't sit out the poll interval first
 }
 
-void ClockApp::begin(Adafruit_Protomatter &matrix) {
+void ClockApp::begin(MatrixGfx &matrix) {
   (void)matrix;
   // Forces update() to draw on its very next call rather than waiting for a
   // second boundary or the poll interval, so switching back to this app
@@ -30,7 +30,7 @@ void ClockApp::begin(Adafruit_Protomatter &matrix) {
   lastPolledMs_ = 0;
 }
 
-void ClockApp::update(Adafruit_Protomatter &matrix, uint32_t nowMs) {
+void ClockApp::update(MatrixGfx &matrix, uint32_t nowMs) {
   if (nowMs - lastPolledMs_ < kPollIntervalMs) return;
   lastPolledMs_ = nowMs;
 

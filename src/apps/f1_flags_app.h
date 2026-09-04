@@ -24,9 +24,9 @@ class F1FlagsApp : public App {
   explicit F1FlagsApp(MvLink &link);
 
   const char *name() const override { return "f1flags"; }
-  void begin(Adafruit_Protomatter &matrix) override;
+  void begin(MatrixGfx &matrix) override;
   void end() override;
-  void update(Adafruit_Protomatter &matrix, uint32_t nowMs) override;
+  void update(MatrixGfx &matrix, uint32_t nowMs) override;
 
   SettingsBag *settings() override { return &settings_; }
   void onSettingChanged(const char *key) override;
@@ -57,9 +57,9 @@ class F1FlagsApp : public App {
 
   void applyHost();
   RenderState computeRenderState(const MvLink::Snapshot &snapshot) const;
-  static void render(Adafruit_Protomatter &matrix, const RenderState &state);
+  static void render(MatrixGfx &matrix, const RenderState &state);
   static bool renderStateEquals(const RenderState &a, const RenderState &b);
-  static void drawSingleLine(Adafruit_Protomatter &matrix, const char *text, uint16_t bg, uint16_t fg);
+  static void drawSingleLine(MatrixGfx &matrix, const char *text, uint16_t bg, uint16_t fg);
 
   MvLink &link_;
   char host_[kHostCap] = "";

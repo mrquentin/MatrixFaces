@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include <Adafruit_Protomatter.h>
+#include "matrix_gfx.h"
 
 #include "app_setting.h"
 #include "apps/settings_bag.h"
@@ -19,7 +19,7 @@ class App : public SettingsOwner {
   // Called once when this app becomes active. The matrix is already blanked
   // by the scheduler; use this to reset any per-app render state so the next
   // update() redraws immediately instead of waiting for its own throttling.
-  virtual void begin(Adafruit_Protomatter &matrix) { (void)matrix; }
+  virtual void begin(MatrixGfx &matrix) { (void)matrix; }
 
   // Called once when this app stops being active, before the next app's
   // begin(). Somewhere to drop work that only makes sense while on screen --
@@ -29,7 +29,7 @@ class App : public SettingsOwner {
   // Called every loop() iteration while this app is active. Implementations
   // should throttle their own redraws and only call matrix.show() when the
   // frame actually changed, since loop() also serves HTTP requests.
-  virtual void update(Adafruit_Protomatter &matrix, uint32_t nowMs) = 0;
+  virtual void update(MatrixGfx &matrix, uint32_t nowMs) = 0;
 
   // Optional configuration, discoverable over /api/apps without the caller
   // needing per-app knowledge. An app with settings returns a bag binding each

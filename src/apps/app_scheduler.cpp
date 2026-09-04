@@ -8,9 +8,9 @@ bool AppScheduler::add(App &app) {
   return true;
 }
 
-ProtomatterStatus AppScheduler::begin() {
-  const ProtomatterStatus status = matrix_.begin();
-  if (status == PROTOMATTER_OK && count_ > 0) {
+MatrixBeginStatus AppScheduler::begin() {
+  const MatrixBeginStatus status = matrix_.begin();
+  if (status == kMatrixBeginOk && count_ > 0) {
     apps_[activeIndex_]->begin(matrix_);
   }
   return status;
