@@ -8,6 +8,7 @@
 #include "apps/app_scheduler.h"
 #include "board/time_source.h"
 #include "api/ws_hub.h"
+#include "api/ws_ticket.h"
 #include "net/multiviewer_parse.h"
 
 // Everything the API layer is allowed to touch, handed in by the composition
@@ -45,4 +46,10 @@ struct ApiContext {
   // upgrade route hands adopted connections here; nothing else touches it,
   // because it belongs to the network task alone.
   WsHub *wsHub;
+
+  // Tickets minted by POST /api/ws-ticket and redeemed by GET /api/ws --
+  // see ws_ticket.h for why the upgrade needs a second authentication path.
+  // A plain object, not a pointer: every board has one, whether or not
+  // kHasWebSocket ever gives it anything to do.
+  WsTicketStore &wsTickets;
 };

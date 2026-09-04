@@ -17,9 +17,10 @@ constexpr char kBoardName[] = "matrixportal-s3";
 // listening server and cannot.
 constexpr bool kHasWebSocket = true;
 
-// A LittleFS partition is reserved (boards/partitions_8mb_ota.csv) but nothing
-// mounts or serves from it until phase 5.3.
-constexpr bool kHasFilesystem = false;
+// A LittleFS partition is reserved (boards/partitions_8mb_ota.csv), holding
+// the on-device web UI's static assets (board/esp32s3/fs.cpp). The M4 has no
+// equivalent partition and serves its one page from flash instead.
+constexpr bool kHasFilesystem = true;
 
 // lwIP owns the sockets, so an outbound connection can be held open between
 // uses without competing with the listening server for a shared pool. That is

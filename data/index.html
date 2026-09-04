@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MatrixFaces</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>MatrixFaces</h1>
+  <div id="board-info" class="muted"></div>
+  <div id="conn-status" class="pill pill-unknown">connecting&hellip;</div>
+</header>
+
+<section id="pairing-panel" hidden>
+  <h2>Pair with this board</h2>
+  <p>Press <strong>UP</strong> on the board to open a 60&nbsp;second pairing
+     window, then click Pair before it closes.</p>
+  <button id="pair-button">Pair</button>
+  <p id="pairing-error" class="error" hidden></p>
+</section>
+
+<main id="apps-panel" hidden></main>
+
+<footer>
+  <button id="unpair-button" hidden>Forget this board</button>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

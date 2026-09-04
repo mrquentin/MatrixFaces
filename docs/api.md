@@ -14,6 +14,8 @@
 | `GET`    | `/api/apps/<index>/settings` | yes  | current setting values for that app |
 | `POST`   | `/api/apps/<index>/settings` | yes  | partial update of that app's settings |
 | `GET`    | `/api/metrics`               | yes  | CPU and RAM instrumentation       |
+| `POST`   | `/api/ws-ticket`             | yes  | mint a short-lived ticket for the upgrade below |
+| `GET`    | `/api/ws`                    | ticket | upgrade to the live-events WebSocket, on boards with `kHasWebSocket` |
 
 See [Security model](security.md) for how `yes`/`window`-gated requests are
 authenticated, [Client](client.md) for a ready-made client, and

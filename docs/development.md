@@ -99,6 +99,20 @@ Changing that partition table erases NVS, and NVS is where paired credentials
 and app settings live — so it is fixed, and everything phases 5 and 6 need is
 already reserved in it.
 
+## The on-device web UI's filesystem
+
+`data/` (`index.html`, `app.js`, `style.css`) is compiled into a LittleFS
+image and flashed separately from the firmware:
+
+    pio run -e s3 -t buildfs      # compile data/ -> .pio/build/s3/littlefs.bin
+    pio run -e s3 -t uploadfs     # flash it
+
+It is not part of `-t upload` and not part of OTA: the partition holding it
+(`boards/partitions_8mb_ota.csv`) only needs writing once, or again after a
+change to `data/`. `board_caps::kHasFilesystem` gates serving it (true on the
+S3, false on the M4, which keeps its one embedded page); a board that
+answers false never mounts or reads it.
+
 ### Host test suites
 
 `env:native` builds the portable half of the firmware (see `build_src_filter`

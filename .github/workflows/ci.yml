@@ -68,3 +68,10 @@ jobs:
 
       - name: Build ${{ matrix.environment }}
         run: pio run -e ${{ matrix.environment }}
+
+      # Compiles data/ into the image the board actually serves the web UI
+      # from -- a change that breaks the filesystem build (an asset too big
+      # for the partition, say) fails here rather than only on flash.
+      - name: Build filesystem image
+        if: contains(matrix.environment, 's3')
+        run: pio run -e ${{ matrix.environment }} -t buildfs

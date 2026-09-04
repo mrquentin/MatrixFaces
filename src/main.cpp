@@ -8,16 +8,15 @@
 #include "api/handlers.h"
 #include "api/http_request.h"
 #include "api/ws_hub.h"
+#include "api/ws_ticket.h"
 #include "apps/app_settings_store.h"
 #include "storage/quiet_timer.h"
-// Unqualified on purpose: -Isrc/board/<target> decides whose pin table and
-// whose matrix driver these are, which is the rule that keeps the board out
-// of the composition root.
 #include "board_pins.h"
 #include "matrix_gfx.h"
 
 #include "board/button.h"
 #include "board/exec.h"
+#include "board/fs.h"
 #include "board/metrics.h"
 #include "board/net_link.h"
 #include "board/rtos.h"
@@ -95,9 +94,11 @@ void onWsMessage(const char *json, size_t len, void *user) {
   api::handleWsMessage(json, len, *static_cast<ApiContext *>(user));
 }
 
+WsTicketStore wsTickets;
+
 ApiContext apiContext{credentials,  authenticator,   pairing,
                       clockSource,  appScheduler,    desiredLedState,
-                      FIRMWARE_VERSION, nullptr, nullptr};
+                      FIRMWARE_VERSION, nullptr, nullptr, wsTickets};
 
 WsHub wsHub(onWsMessage, &apiContext);
 
@@ -409,6 +410,7 @@ void setup() {
   metrics::begin();
 
   secure_random::begin();
+  fs::begin();
   credentials.begin();
   buttonUp.begin(board_pins::kButtonUp);
   buttonDown.begin(board_pins::kButtonDown);

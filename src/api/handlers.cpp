@@ -9,14 +9,17 @@
 #include "api/json_util.h"
 #include "api/router.h"
 #include "api/websocket.h"
+#include "api/ws_ticket.h"
 // Unqualified: -Isrc/board/<target> decides whose capabilities these are.
 #include "board_caps.h"
 
+#include "board/fs.h"
 #include "board/metrics.h"
 #include "board/rtos.h"
 #include "board/net_link.h"
 #include "board/secure_random.h"
 #include "hex.h"
+#include "net/query_string.h"
 
 namespace api {
 namespace {
@@ -489,11 +492,38 @@ void handleRevokeClient(Client &client, const HttpRequest &, const char *wildcar
   sendJson(client, 200, "OK", doc);
 }
 
-// Turns an authenticated GET into a WebSocket. Authentication already happened
-// -- this route sits under /api/ like every other, so handleRequest() has
-// verified the signature over the request before reaching here, and the
-// connection inherits that. There is no second authentication step and no
-// token: the socket is trusted because the request that created it was.
+// Mints a short-lived, single-use ticket for the upgrade below. A normal
+// signed route: the browser reaches this the same way it reaches every
+// other authenticated call, via WebCrypto -- only the socket handshake
+// itself cannot carry a signature.
+void handleCreateWsTicket(Client &client, const HttpRequest &, const char *, ApiContext &ctx) {
+  if (!board_caps::kHasWebSocket) {
+    sendErrorResponse(client, 501, "Not Implemented", "websocket_unsupported");
+    return;
+  }
+
+  uint8_t bytes[WsTicketStore::kTicketBytes];
+  if (!secure_random::bytes(bytes, sizeof(bytes))) {
+    sendErrorResponse(client, 500, "Internal Server Error", "rng_unavailable");
+    return;
+  }
+
+  char hex[WsTicketStore::kTicketHexLen + 1];
+  ctx.wsTickets.issue(bytes, ctx.clock.isValid() ? ctx.clock.now() : 0, hex);
+
+  JsonDocument doc;
+  doc["ticket"] = hex;
+  doc["expires_in"] = WsTicketStore::kLifetimeSeconds;
+  sendJson(client, 200, "OK", doc);
+}
+
+// Turns a ticket-carrying GET into a WebSocket. Unlike every other route
+// this one is NOT signature-checked by handleRequest() (see kRoutes below):
+// a browser's WebSocket constructor cannot set an Authorization header, so
+// there is nothing there to verify. The ticket -- minted by the signed
+// POST /api/ws-ticket above, and good for one use within
+// WsTicketStore::kLifetimeSeconds -- is the proof that whoever is opening
+// this socket already authenticated a moment ago.
 void handleWebSocketUpgrade(Client &client, const HttpRequest &request, const char *,
                             ApiContext &ctx) {
   // A capability, not an #ifdef: the M4 compiles this and answers honestly.
@@ -504,7 +534,14 @@ void handleWebSocketUpgrade(Client &client, const HttpRequest &request, const ch
     return;
   }
 
-  if (request.websocketKey[0] == ' ') {
+  char ticket[WsTicketStore::kTicketHexLen + 1];
+  if (!net::queryParam(request.target, "ticket", ticket, sizeof(ticket)) ||
+      !ctx.wsTickets.consume(ticket, ctx.clock.isValid() ? ctx.clock.now() : 0)) {
+    sendErrorResponse(client, 401, "Unauthorized", "invalid_ticket");
+    return;
+  }
+
+  if (request.websocketKey[0] == '\0') {
     sendErrorResponse(client, 400, "Bad Request", "expected_websocket_key");
     return;
   }
@@ -620,7 +657,9 @@ constexpr Route kRoutes[] = {
     {"POST", "/pair", handlePair, false},
 
     {"GET", "/api/status", handleStatus, true},
-    {"GET", "/api/ws", handleWebSocketUpgrade, true},
+    {"POST", "/api/ws-ticket", handleCreateWsTicket, true},
+    // Not signature-checked by handleRequest(): see handleWebSocketUpgrade.
+    {"GET", "/api/ws", handleWebSocketUpgrade, false},
     {"POST", "/api/led", handleSetLed, true},
     {"GET", "/api/clients", handleListClients, true},
     {"GET", "/api/apps", handleListApps, true},
@@ -690,6 +729,14 @@ void handleRequest(Client &client, const HttpRequest &request, ApiContext &ctx) 
   // Note the signature covers request.target, query string included, not the
   // routing path.
   if (strncmp(request.path, "/api/", 5) != 0) {
+    // The on-device web UI's static assets, gated on the same capability
+    // that makes serveFile() a no-op everywhere else: unauthenticated, like
+    // any static asset, and unable to shadow "/" (handleRoot's route always
+    // matches first) or anything under /api/.
+    if (board_caps::kHasFilesystem && strcmp(request.method, "GET") == 0 &&
+        fs::serveFile(client, request.path)) {
+      return;
+    }
     sendErrorResponse(client, 404, "Not Found", "unknown_endpoint");
     return;
   }

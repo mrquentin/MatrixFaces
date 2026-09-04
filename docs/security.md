@@ -79,3 +79,21 @@ real client out.
 
 Until the board gets NTP time from the WiFi module, API calls return
 `503 {"error":"clock_unavailable"}` rather than accepting unbounded replays.
+
+## The WebSocket upgrade's ticket
+
+`GET /api/ws` cannot be signed the way every other route is: a browser's
+`WebSocket` constructor never lets calling code set an `Authorization`
+header, so there is nothing for the upgrade to carry a signature in.
+
+Instead, a signed `POST /api/ws-ticket` mints a random 8-byte ticket, and
+the upgrade is opened at `/api/ws?ticket=<16 hex>`. The ticket is:
+
+- single-use -- consumed the moment the upgrade succeeds, so it cannot be
+  replayed even if it leaks (a browser history entry, a proxy log);
+- short-lived -- 10 seconds, long enough to receive the response and open
+  the socket immediately after, nothing more;
+- not itself a credential -- it proves only "something this board already
+  authenticated a moment ago wants to open a socket now", the same
+  guarantee a signature gives every other route, carried where a browser
+  can actually put it.
